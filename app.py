@@ -1,47 +1,42 @@
 import streamlit as st
 import pandas as pd
 from geopy.distance import geodesic
-from geopy.geocoders import Nominatim
 
 st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wide")
 
 st.title("☕ Buscador de Cafés Cercanos")
 
-# Leer base real
 cafes = pd.read_csv("Cafes.csv")
 
-direccion = st.text_input("Ingresá tu dirección")
+st.write("Permitir ubicación para encontrar cafés cercanos.")
+
+user_location = st.experimental_get_query_params()
+
+lat = st.number_input("Tu latitud")
+lon = st.number_input("Tu longitud")
 
 if st.button("Buscar cafés cercanos"):
 
-    if direccion:
-        geolocator = Nominatim(user_agent="buscador_cafes")
-        location = geolocator.geocode(direccion)
+    if lat != 0 and lon != 0:
 
-        if location:
-            user_location = (location.latitude, location.longitude)
+        user_coords = (lat, lon)
 
-            cafes["Distancia_km"] = cafes.apply(
-                lambda row: geodesic(user_location, (row["LAT"], row["LONG"])).km,
-                axis=1
-            )
+        cafes["Distancia_km"] = cafes.apply(
+            lambda row: geodesic(user_coords, (row["LAT"], row["LONG"])).km,
+            axis=1
+        )
 
-            cafes_ordenado = cafes.sort_values("Distancia_km")
+        cafes_ordenado = cafes.sort_values("Distancia_km")
 
-            st.subheader("☕ Los cafés más cercanos a vos")
+        st.subheader("☕ Cafés más cercanos")
 
-            for index, row in cafes_ordenado.head(5).iterrows():
-                st.markdown(f"""
-                ### {row['CAFE']}
-                📍 {row['UBICACION']}  
-                🔥 Tostador: {row['TOSTADOR']}  
-                ⭐ Puntaje: {row['PUNTAJE']}  
-                📏 Tamaño: {row['Tamaño Local']}  
-                🗓 Abre domingos: {row['¿ Abre los domingos ?']}  
-                📍 Distancia: {row['Distancia_km']:.2f} km
-                ---
-                """)
-        else:
-            st.error("No se pudo encontrar la dirección. Probá escribirla completa.")
-    else:
-        st.warning("Por favor ingresá una dirección.")
+        for index, row in cafes_ordenado.head(5).iterrows():
+            st.markdown(f"""
+            ### {row['CAFE']}
+            📍 {row['UBICACION']}  
+            ⭐ Puntaje: {row['PUNTAJE']}  
+            🔥 Tostador: {row['TOSTADOR']}  
+            📏 Distancia: {row['Distancia_km']:.2f} km
+            ---
+            """)
+
