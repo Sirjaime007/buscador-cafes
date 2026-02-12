@@ -16,22 +16,31 @@ st.write("Ingresá una **dirección de Mar del Plata** y te mostramos los cafés
 
 @st.cache_data
 def load_cafes(path: str) -> pd.DataFrame:
-    # Leemos con latin-1 para arreglar caracteres rotos
+    # Leer con codificación adecuada
     df = pd.read_csv(path, encoding="latin-1")
 
-    # Validamos columnas requeridas
-    cols_req = {"CAFE", "UBICACION", "TOSTADOR", "PUNTAJE", "LAT", "LONG"}
-    falt = cols_req - set(df.columns)
-    if falt:
-        st.error(f"Faltan columnas en Cafes.csv: {', '.join(falt)}")
+    # Validar columnas requeridas
+    required_cols = {"CAFE","UBICACION","TOSTADOR","PUNTAJE","LAT","LONG"}
+    if not required_cols.issubset(df.columns):
+        st.error(f"El CSV no contiene estas columnas: {required_cols}")
         st.stop()
 
-    # Convertimos a números
+    # 🔥 CORRECCIÓN CLAVE: convertir coma → punto en coordenadas
+    df["LAT"] = df["LAT"].astype(str).str.replace(",", ".", regex=False)
+    df["LONG"] = df["LONG"].astype(str).str.replace(",", ".", regex=False)
+
+    # Convertir a número
     df["LAT"] = pd.to_numeric(df["LAT"], errors="coerce")
     df["LONG"] = pd.to_numeric(df["LONG"], errors="coerce")
     df["PUNTAJE"] = pd.to_numeric(df["PUNTAJE"], errors="coerce")
 
+    # Si después de convertir no hay coordenadas válidas, avisamos
+    if df["LAT"].isna().all() or df["LONG"].isna().all():
+        st.error("Las coordenadas LAT/LONG del CSV no son válidas. Verificá el formato.")
+        st.stop()
+
     return df
+  
 
 
 cafes = load_cafes("Cafes.csv")
