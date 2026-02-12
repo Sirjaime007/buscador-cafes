@@ -1,0 +1,6 @@
+streamlit
+pandas
+geopy
+pydeck
+gspread
+google-auth
