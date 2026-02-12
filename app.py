@@ -1,77 +1,78 @@
+import os
+from datetime import datetime
+
 import streamlit as st
 import pandas as pd
-import numpy as np
 from geopy.distance import geodesic
 from geopy.geocoders import ArcGIS
 import pydeck as pdk
-import uuid
-import time
-import os
-from datetime import datetime
-import json
-import streamlit.components.v1 as components
 
-VOTES_FILE = "votes.csv"  # persistencia de votos
+# Google Sheets
+import gspread
+from google.oauth2.service_account import Credentials
 
-# ================================
-# Configuración general
-# ================================
+# =========================================
+# CONFIGURACIÓN
+# =========================================
 st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wide")
 st.title("☕ Buscador de Cafés Cercanos")
-st.write("Ingresá una **dirección de Mar del Plata** y te mostramos los cafés cercanos. ¡Ahora también podés **votar** tu favorito!")
+st.caption("Ingresá una **dirección de Mar del Plata**. Mostramos cafés cercanos, podés **votar** tu favorito y abajo verás un **índice completo** ordenado por cercanía.")
 
-# ================================
-# Utilidad: Cookie voter_id (persistente en el navegador)
-# ================================
-def ensure_voter_cookie():
-    """
-    Asegura que exista una cookie 'voter_id' en el navegador del usuario.
-    Si no existe, crea una con un UUID y la devuelve.
-    """
-    # Componente HTML para leer/escribir la cookie
-    cookie_js = """
-    <script>
-    (function() {
-        function getCookie(name) {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            if (parts.length === 2) return parts.pop().split(';').shift();
-            return null;
-        }
-        function setCookie(name, value, days) {
-            const d = new Date();
-            d.setTime(d.getTime() + (days*24*60*60*1000));
-            const expires = "expires=" + d.toUTCString();
-            document.cookie = name + "=" + value + ";" + expires + ";path=/;SameSite=Lax";
-        }
+CUADRA_METROS = 87
+GSHEET_NAME = "cafes_reviews"   # <-- nombre de tu Google Sheet (pestaña principal: Hoja 1 con encabezados: voter_id | CAFE | score | ts)
 
-        let voter = getCookie("voter_id");
-        if (!voter) {
-            // Creamos un UUID simple (no 100% RFC pero suficiente para identificar al browser)
-            voter = self.crypto && crypto.randomUUID ? crypto.randomUUID() : (Date.now()+"-"+Math.random());
-            setCookie("voter_id", voter, 3650); // 10 años
-        }
-        // Enviamos el valor a Streamlit
-        const streamlitDoc = window.parent.document;
-        const el = streamlitDoc.getElementById("voter_cookie_sink");
-        if (el) { el.value = voter; el.dispatchEvent(new Event("change", { bubbles: true })); }
-    })();
-    </script>
-    """
-    # Input oculto para recoger la cookie hacia Streamlit
-    voter_id = st.text_input("voter_cookie_sink", key="voter_cookie_sink", label_visibility="collapsed")
-    components.html(cookie_js, height=0, scrolling=False)
-    return voter_id
+# =========================================
+# UTILIDADES: Google Sheets
+# =========================================
+SCOPE = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
-voter_id = ensure_voter_cookie()
+@st.cache_resource(show_spinner=False)
+def get_gsheet():
+    """Conecta a Google Sheets usando credenciales en st.secrets['gcp_service_account']."""
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPE)
+    client = gspread.authorize(creds)
+    sheet = client.open(GSHEET_NAME).sheet1  # Hoja 1
+    return sheet
 
-# ================================
-# Cargar CSV de cafés (tildes + decimales OK)
-# ================================
-@st.cache_data
+def load_votes() -> pd.DataFrame:
+    """Lee todos los votos desde Google Sheets."""
+    try:
+        sheet = get_gsheet()
+        rows = sheet.get_all_records()
+        if not rows:
+            return pd.DataFrame(columns=["voter_id", "CAFE", "score", "ts"])
+        df = pd.DataFrame(rows)
+        # normalizo tipos
+        if "score" in df.columns:
+            df["score"] = pd.to_numeric(df["score"], errors="coerce")
+        return df
+    except Exception as e:
+        st.warning(f"No se pudo leer votos de Google Sheets: {e}")
+        return pd.DataFrame(columns=["voter_id", "CAFE", "score", "ts"])
+
+def upsert_vote(voter_id: str, cafe_name: str, score: float):
+    """Inserta o actualiza el voto del usuario para ese café en Google Sheets."""
+    sheet = get_gsheet()
+    rows = sheet.get_all_records()
+    # Buscar si ya existe (fila 2 en adelante porque 1 es encabezado)
+    for i, row in enumerate(rows, start=2):
+        if str(row.get("voter_id")) == voter_id and str(row.get("CAFE")) == cafe_name:
+            sheet.update_cell(i, 3, float(score))                 # score (col 3)
+            sheet.update_cell(i, 4, datetime.utcnow().isoformat())# ts (col 4)
+            return
+    # Si no existe, lo agrego
+    sheet.append_row([voter_id, cafe_name, float(score), datetime.utcnow().isoformat()])
+
+# =========================================
+# UTILIDADES: Carga y normalización del CSV
+# =========================================
+@st.cache_data(show_spinner=False)
 def load_cafes(path: str) -> pd.DataFrame:
     df = None
-    for enc in ["utf-8", "utf-8-sig", "cp1252", "latin-1"]:
+    for enc in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
         try:
             df = pd.read_csv(path, encoding=enc, dtype=str)
             break
@@ -80,39 +81,48 @@ def load_cafes(path: str) -> pd.DataFrame:
     if df is None:
         df = pd.read_csv(path, dtype=str)
 
+    # Arreglo básico de mojibake (HipÃ³lito → Hipólito; Â¿ → ¿)
     def fix_text(x):
         try:
             return x.encode("latin1").decode("utf-8")
         except Exception:
             return x
 
-    for col in df.select_dtypes(include="object"):
-        df[col] = df[col].apply(lambda x: fix_text(str(x)) if x is not None else x)
+    for c in df.select_dtypes(include="object"):
+        df[c] = df[c].apply(lambda x: fix_text(str(x)) if x is not None else x)
 
+    # Normalización numérica sin perder decimales
     def fix_number(x):
         if x is None:
             return None
         x = str(x).strip()
         if x == "":
             return None
+        # -38,0056 -> -38.0056
         if x.count(",") == 1 and x.count(".") == 0:
             return x.replace(",", ".")
+        # 1.234,567 -> 1234.567
         if x.count(".") == 1 and x.count(",") == 1:
             return x.replace(".", "").replace(",", ".")
         return x
 
+    required_cols = {"CAFE", "UBICACION", "TOSTADOR", "PUNTAJE", "LAT", "LONG"}
+    faltan = required_cols - set(df.columns)
+    if faltan:
+        st.error(f"Faltan columnas requeridas en Cafes.csv: {', '.join(sorted(faltan))}")
+        st.stop()
+
     df["LAT"] = pd.to_numeric(df["LAT"].apply(fix_number), errors="coerce")
     df["LONG"] = pd.to_numeric(df["LONG"].apply(fix_number), errors="coerce")
     df["PUNTAJE"] = pd.to_numeric(df["PUNTAJE"].apply(fix_number), errors="coerce")
-
     return df
 
 cafes = load_cafes("Cafes.csv")
 
-# ================================
-# Geocoder ArcGIS
-# ================================
-@st.cache_resource
+# =========================================
+# Geocoder ArcGIS (sin API key)
+# =========================================
+@st.cache_resource(show_spinner=False)
 def get_geocoder():
     return ArcGIS(timeout=10)
 
@@ -122,143 +132,56 @@ def geocode_address(address: str):
         return float(loc.latitude), float(loc.longitude)
     return None
 
-# ================================
-# Votos: carga/guardado
-# ================================
-def load_votes() -> pd.DataFrame:
-    if not os.path.exists(VOTES_FILE):
-        return pd.DataFrame(columns=["voter_id", "CAFE", "score", "ts"])
-    try:
-        df = pd.read_csv(VOTES_FILE, encoding="utf-8")
-        # normalizo tipos
-        df["score"] = pd.to_numeric(df["score"], errors="coerce")
-        return df.dropna(subset=["voter_id", "CAFE"])
-    except Exception:
-        return pd.DataFrame(columns=["voter_id", "CAFE", "score", "ts"])
-
-def upsert_vote(voter_id: str, cafe_name: str, score: float):
-    """
-    Inserta o actualiza el voto del usuario para ese café (1–10).
-    """
-    votes = load_votes()
-    now_iso = datetime.utcnow().isoformat()
-
-    # Si ya votó este café, actualizamos
-    mask = (votes["voter_id"] == voter_id) & (votes["CAFE"] == cafe_name)
-    if mask.any():
-        votes.loc[mask, ["score", "ts"]] = [score, now_iso]
-    else:
-        votes = pd.concat([
-            votes,
-            pd.DataFrame([{"voter_id": voter_id, "CAFE": cafe_name, "score": score, "ts": now_iso}])
-        ], ignore_index=True)
-
-    votes.to_csv(VOTES_FILE, index=False, encoding="utf-8")
-
-def ranking_from_votes(cafes_df: pd.DataFrame, votes_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calcula ranking con promedio bayesiano:
-    score_adj = (v/(v+m))*avg + (m/(v+m))*C
-    donde:
-      v = cantidad de votos del café
-      avg = promedio del café
-      C = promedio global
-      m = mínimo de votos para estabilizar (ej: 5)
-    """
-    if votes_df.empty:
-        out = cafes_df[["CAFE"]].copy()
-        out["votos"] = 0
-        out["promedio"] = np.nan
-        out["score_ajustado"] = np.nan
-        return out
-
-    agg = votes_df.groupby("CAFE")["score"].agg(["count", "mean"]).rename(columns={"count": "votos", "mean": "promedio"}).reset_index()
-    global_mean = votes_df["score"].mean()
-    m = 5  # umbral de suavizado
-    agg["score_ajustado"] = (agg["votos"]/(agg["votos"]+m))*agg["promedio"] + (m/(agg["votos"]+m))*global_mean
-
-    # Unimos con cafés para no perder los que aún no tienen votos
-    out = cafes_df[["CAFE"]].merge(agg, on="CAFE", how="left").fillna({"votos": 0})
-    return out
-
-# ================================
-# Inputs
-# ================================
-col1, col2, col3 = st.columns([3, 1, 1])
-
+# =========================================
+# UI: una sola barra de búsqueda
+# =========================================
+col1, col2 = st.columns([3, 1])
 with col1:
-    direccion = st.text_input("Dirección", "Av. Colón 1500")
-
+    direccion = st.text_input("Dirección", value="Av. Colón 1500", placeholder="Ej.: Gascón 2525")
 with col2:
     radio_km = st.number_input("Radio (km)", min_value=0.1, value=2.0, step=0.1)
 
-with col3:
-    agrupar = st.checkbox("Agrupar (zoom alejado)", value=True)
+# ID simple por sesión para el voto
+if "voter_id" not in st.session_state:
+    import uuid
+    st.session_state["voter_id"] = str(uuid.uuid4())
+voter_id = st.session_state["voter_id"]
 
-# ================================
-# Acción principal
-# ================================
-if st.button("🔎 Buscar cafés cercanos"):
-
-    with st.spinner("Buscando..."):
+# =========================================
+# ACCIÓN
+# =========================================
+if st.button("🔎 Buscar cafés cercanos", use_container_width=True):
+    with st.spinner("Geocodificando dirección…"):
         coord_user = geocode_address(direccion)
 
     if coord_user is None:
-        st.error("No se encontró la dirección. Probá agregar la altura o revisar la calle.")
+        st.error("No se pudo ubicar la dirección. Usá calle + altura + ciudad (Mar del Plata).")
         st.stop()
 
     st.success("Dirección encontrada ✔️")
 
-    cafes_validos = cafes.dropna(subset=["LAT", "LONG"]).copy()
-
-    # Distancias
-    cafes_validos["DIST_KM"] = cafes_validos.apply(
-        lambda r: geodesic(coord_user, (float(r["LAT"]), float(r["LONG"]))).km,
-        axis=1
+    # Distancias para TODOS (índice completo)
+    cafes_all = cafes.dropna(subset=["LAT", "LONG"]).copy()
+    cafes_all["DIST_KM_TOTAL"] = cafes_all.apply(
+        lambda r: geodesic(coord_user, (float(r["LAT"]), float(r["LONG"]))).km, axis=1
     )
-    cafes_validos["CUADRAS"] = cafes_validos["DIST_KM"] * 1000 / 87
+    cafes_all["CUADRAS_TOTAL"] = cafes_all["DIST_KM_TOTAL"] * 1000.0 / CUADRA_METROS
 
-    # Filtrar por radio
-    resultado = cafes_validos[cafes_validos["DIST_KM"] <= radio_km] \
-        .sort_values("DIST_KM") \
+    # Resultados por radio para la sección principal
+    resultado = (
+        cafes_all[cafes_all["DIST_KM_TOTAL"] <= radio_km]
+        .sort_values("DIST_KM_TOTAL")
         .reset_index(drop=True)
+        .rename(columns={"DIST_KM_TOTAL": "DIST_KM", "CUADRAS_TOTAL": "CUADRAS"})
+    )
 
-    st.subheader("Resultados")
+    st.subheader("Resultados en el radio seleccionado")
 
     if resultado.empty:
-        st.warning("No hay cafés dentro del radio indicado.")
+        st.info("No hay cafés dentro del radio. Probá ampliar el radio.")
         st.stop()
 
-    # ============================
-    # VOTAR (UI por fila)
-    # ============================
-    st.caption("🗳️ **Votá tu favorito** (1 a 10). Podés actualizar tu voto cuando quieras.")
-    vote_cols = st.columns([1, 3, 2, 2, 2, 2])
-    vote_cols[0].markdown("**#**")
-    vote_cols[1].markdown("**Café**")
-    vote_cols[2].markdown("**Puntaje**")
-    vote_cols[3].markdown("**Votar**")
-    vote_cols[4].markdown("**Dist. (km)**")
-    vote_cols[5].markdown("**Cuadras**")
-
-    for idx, row in resultado.iterrows():
-        c1, c2, c3, c4, c5, c6 = st.columns([1, 3, 2, 2, 2, 2])
-        c1.write(idx+1)
-        c2.write(f"{row['CAFE']} — {row['UBICACION']}")
-        score_val = c3.slider(f"punt_{idx}", 1.0, 10.0, 8.0, 0.5, label_visibility="collapsed", key=f"score_{idx}")
-        if c4.button("Votar", key=f"vote_{idx}", help="Guarda/actualiza tu voto para este café"):
-            if not voter_id:
-                st.error("No pudimos leer tu cookie de votante. Refrescá la página e intentá de nuevo.")
-            else:
-                upsert_vote(voter_id=voter_id, cafe_name=row["CAFE"], score=score_val)
-                st.success(f"¡Voto registrado para **{row['CAFE']}** con {score_val} puntos!")
-
-        c5.write(round(row["DIST_KM"], 3))
-        c6.write(round(row["CUADRAS"], 1))
-
-    # ============================
-    # TABLA + Link a Google Maps
-    # ============================
+    # Tabla + link "Abrir Maps"
     def link_maps(lat, lon):
         return f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
 
@@ -279,37 +202,8 @@ if st.button("🔎 Buscar cafés cercanos"):
     )
 
     # ============================
-    # RANKING (promedio + votos + score ajustado)
+    # Mapa (IconLayer + color por puntaje)
     # ============================
-    st.subheader("🏆 Ranking por votos de la gente")
-    votes_df = load_votes()
-    ranking = ranking_from_votes(cafes_df=cafes, votes_df=votes_df)
-
-    # Mostrar solo cafés dentro del radio para ranking local (opcional)
-    ranking_local = ranking.merge(resultado[["CAFE"]], on="CAFE", how="inner").copy()
-
-    # Orden: score ajustado (desc), luego votos (desc)
-    ranking_local = ranking_local.sort_values(["score_ajustado", "votos"], ascending=[False, False]).reset_index(drop=True)
-
-    # Mostrar limpio
-    ranking_show = ranking_local.copy()
-    ranking_show["promedio"] = ranking_show["promedio"].round(2)
-    ranking_show["score_ajustado"] = ranking_show["score_ajustado"].round(2)
-
-    st.dataframe(
-        ranking_show.rename(columns={
-            "CAFE": "Café",
-            "votos": "Votos",
-            "promedio": "Promedio",
-            "score_ajustado": "Ranking (ajustado)"
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # ================================
-    # MAPA (IconLayer + color por puntaje + densidad opcional)
-    # ================================
     st.subheader("Mapa")
 
     map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"})[
@@ -319,10 +213,6 @@ if st.button("🔎 Buscar cafés cercanos"):
     map_df["lon"] = pd.to_numeric(map_df["lon"], errors="coerce")
     map_df["PUNTAJE"] = pd.to_numeric(map_df["PUNTAJE"], errors="coerce")
     map_df = map_df.dropna(subset=["lat", "lon"])
-
-    if map_df.empty:
-        st.info("No hay coordenadas válidas para el mapa.")
-        st.stop()
 
     def color_por_puntaje(p):
         try:
@@ -347,20 +237,12 @@ if st.button("🔎 Buscar cafés cercanos"):
         get_icon="icon_name",
         get_position=["lon", "lat"],
         get_size="size",
-        size_scale=8,
+        size_scale=8,                # pequeño
         icon_atlas=icon_atlas,
         icon_mapping=icon_mapping,
         get_color="COLOR",
         pickable=True
     )
-
-    heat_layer = pdk.Layer(
-        "HeatmapLayer",
-        data=map_df,
-        get_position=["lon", "lat"],
-        get_weight="PUNTAJE",
-        radius_pixels=40,
-    ) if agrupar else None
 
     user_layer = pdk.Layer(
         "ScatterplotLayer",
@@ -372,12 +254,58 @@ if st.button("🔎 Buscar cafés cercanos"):
     )
 
     view = pdk.ViewState(latitude=coord_user[0], longitude=coord_user[1], zoom=14)
-    layers = [icon_layer, user_layer] if not agrupar else [heat_layer, icon_layer, user_layer]
-
     deck = pdk.Deck(
-        layers=layers,
+        layers=[icon_layer, user_layer],
         initial_view_state=view,
         tooltip={"html": "<b>{CAFE}</b><br/>{UBICACION}<br/>Puntaje: {PUNTAJE}"},
-        map_style=None
+        map_style=None  # sin token
     )
-    st.pydeck_chart(deck, use_container_width=True, height=520)
+    st.pydeck_chart(deck, use_container_width=True, height=420)
+
+    # ============================
+    # Votar (simple, en una línea)
+    # ============================
+    st.subheader("Votar tu café favorito (simple)")
+    v1, v2, v3 = st.columns([3, 2, 1])
+    with v1:
+        cafe_sel = st.selectbox("Café", options=list(resultado["CAFE"].unique()), label_visibility="collapsed")
+    with v2:
+        puntaje_sel = st.slider("Puntaje (1–10)", 1.0, 10.0, 8.0, 0.5, label_visibility="collapsed")
+    with v3:
+        if st.button("Votar", use_container_width=True):
+            try:
+                upsert_vote(voter_id=voter_id, cafe_name=cafe_sel, score=puntaje_sel)
+                st.success(f"¡Voto guardado para **{cafe_sel}** con {puntaje_sel} puntos!")
+            except Exception as e:
+                st.error(f"No se pudo guardar el voto en Google Sheets: {e}")
+
+    # ============================
+    # Ranking global (Google Sheets)
+    # ============================
+    st.subheader("🏆 Ranking (global, votos reales en Google Sheets)")
+    votes_df = load_votes()
+    if votes_df.empty:
+        st.info("Aún no hay votos registrados.")
+    else:
+        ranking = (
+            votes_df.groupby("CAFE")["score"]
+            .agg(["count", "mean"])
+            .rename(columns={"count": "Votos", "mean": "Promedio"})
+            .reset_index()
+            .sort_values(["Promedio", "Votos"], ascending=[False, False])
+        )
+        ranking["Promedio"] = ranking["Promedio"].round(2)
+        st.dataframe(ranking, use_container_width=True, hide_index=True)
+
+    # ============================
+    # Índice completo (todo el CSV, ordenado por cercanía)
+    # ============================
+    st.subheader("Índice completo de cafés (del más cerca al más lejos)")
+    indice = cafes_all.sort_values("DIST_KM_TOTAL").copy()
+    indice["DIST_KM_TOTAL"] = indice["DIST_KM_TOTAL"].round(3)
+    indice["CUADRAS_TOTAL"] = indice["CUADRAS_TOTAL"].round(1)
+    st.dataframe(
+        indice[["CAFE", "UBICACION", "TOSTADOR", "PUNTAJE", "DIST_KM_TOTAL", "CUADRAS_TOTAL"]],
+        use_container_width=True,
+        hide_index=True
+    )
