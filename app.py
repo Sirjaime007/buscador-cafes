@@ -13,7 +13,23 @@ st.write("Ingresá una **dirección de Mar del Plata** y te mostramos los cafés
 # ---------------------------------------
 # Cargar dataset de cafés
 # ---------------------------------------
+# --- BLOQUE DE FORMATEO PARA MOSTRAR EN TABLA (NO ALTERA LOS CÁLCULOS) ---
+cols_show = ["CAFE", "UBICACION", "TOSTADOR", "PUNTAJE", "LAT", "LONG", "DIST_KM"]
 
+res_to_show = resultado[cols_show].copy()
+
+# Mostrar LAT/LONG con TODOS los decimales (12 es suficiente y legible)
+res_to_show["LAT"] = res_to_show["LAT"].map(lambda x: f"{x:.12f}" if pd.notna(x) else "")
+res_to_show["LONG"] = res_to_show["LONG"].map(lambda x: f"{x:.12f}" if pd.notna(x) else "")
+
+# Mostrar distancia con 3 decimales; los cálculos se hicieron con float de precisión completa
+res_to_show["DIST_KM"] = res_to_show["DIST_KM"].round(3)
+
+st.dataframe(
+    res_to_show,
+    use_container_width=True,
+    hide_index=True
+)
 st.dataframe(
     resultado.assign(DIST_KM=lambda d: d["DIST_KM"]),
     use_container_width=True,
