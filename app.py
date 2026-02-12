@@ -1,35 +1,47 @@
 import streamlit as st
 import pandas as pd
 from geopy.distance import geodesic
+from geopy.geocoders import Nominatim
 
-st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="centered")
+st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wide")
 
 st.title("☕ Buscador de Cafés Cercanos")
 
-cafes = pd.DataFrame({
-    "Nombre": ["Cafe Centro", "Cafe Güemes", "Cafe Puerto"],
-    "Latitud": [-38.0000, -38.0050, -38.0100],
-    "Longitud": [-57.5500, -57.5450, -57.5400]
-})
+# Leer base real
+cafes = pd.read_csv("cafes.csv")
 
-lat_user = st.number_input("Tu latitud", format="%.6f")
-lon_user = st.number_input("Tu longitud", format="%.6f")
+direccion = st.text_input("Ingresá tu dirección")
 
 if st.button("Buscar cafés cercanos"):
 
-    if lat_user != 0 and lon_user != 0:
-        user_location = (lat_user, lon_user)
+    if direccion:
+        geolocator = Nominatim(user_agent="buscador_cafes")
+        location = geolocator.geocode(direccion)
 
-        cafes["Distancia_km"] = cafes.apply(
-            lambda row: geodesic(user_location, (row["Latitud"], row["Longitud"])).km,
-            axis=1
-        )
+        if location:
+            user_location = (location.latitude, location.longitude)
 
-        cafes_ordenado = cafes.sort_values("Distancia_km")
+            cafes["Distancia_km"] = cafes.apply(
+                lambda row: geodesic(user_location, (row["LAT"], row["LONG"])).km,
+                axis=1
+            )
 
-        st.subheader("Los 3 cafés más cercanos:")
+            cafes_ordenado = cafes.sort_values("Distancia_km")
 
-        for index, row in cafes_ordenado.head(3).iterrows():
-            st.write(f"☕ {row['Nombre']} - {row['Distancia_km']:.2f} km")
+            st.subheader("☕ Los cafés más cercanos a vos")
+
+            for index, row in cafes_ordenado.head(5).iterrows():
+                st.markdown(f"""
+                ### {row['CAFE']}
+                📍 {row['UBICACION']}  
+                🔥 Tostador: {row['TOSTADOR']}  
+                ⭐ Puntaje: {row['PUNTAJE']}  
+                📏 Tamaño: {row['Tamaño Local']}  
+                🗓 Abre domingos: {row['¿ Abre los domingos ?']}  
+                📍 Distancia: {row['Distancia_km']:.2f} km
+                ---
+                """)
+        else:
+            st.error("No se pudo encontrar la dirección. Probá escribirla completa.")
     else:
-        st.warning("Ingresá latitud y longitud válidas")
+        st.warning("Por favor ingresá una dirección.")
