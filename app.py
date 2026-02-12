@@ -13,20 +13,26 @@ st.write("Ingresá una **dirección de Mar del Plata** y te mostramos los cafés
 # ---------------------------------------
 # Cargar dataset de cafés
 # ---------------------------------------
+
 @st.cache_data
 def load_cafes(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
+    # Leemos con latin-1 para arreglar caracteres rotos
+    df = pd.read_csv(path, encoding="latin-1")
 
-    cols_req = {"CAFE", "UBICACION", "PUNTAJE", "TOSTADOR", "LAT", "LONG"}
+    # Validamos columnas requeridas
+    cols_req = {"CAFE", "UBICACION", "TOSTADOR", "PUNTAJE", "LAT", "LONG"}
     falt = cols_req - set(df.columns)
     if falt:
         st.error(f"Faltan columnas en Cafes.csv: {', '.join(falt)}")
         st.stop()
 
+    # Convertimos a números
     df["LAT"] = pd.to_numeric(df["LAT"], errors="coerce")
     df["LONG"] = pd.to_numeric(df["LONG"], errors="coerce")
     df["PUNTAJE"] = pd.to_numeric(df["PUNTAJE"], errors="coerce")
+
     return df
+
 
 cafes = load_cafes("Cafes.csv")
 
