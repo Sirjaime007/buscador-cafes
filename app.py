@@ -8,7 +8,7 @@ st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wid
 st.title("☕ Buscador de Cafés Cercanos")
 
 # Leer base real
-cafes = pd.read_csv("cafes.csv")
+cafes = pd.read_csv("Cafes.csv")
 
 direccion = st.text_input("Ingresá tu dirección")
 
