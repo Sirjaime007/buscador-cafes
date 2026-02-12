@@ -118,21 +118,37 @@ if st.button("🔎 Buscar cafés cercanos"):
         st.warning("No hay cafés dentro del radio indicado.")
         st.stop()
 
-    # Agregar botón "Cómo llegar"
-    def link_maps(lat, lon):
-        return f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+   # ============================
+# TABLA CON LINK A GOOGLE MAPS
+# ============================
 
-    resultado["COMO_LLEGAR"] = resultado.apply(
-        lambda r: f"[Cómo llegar]({link_maps(r['LAT'], r['LONG'])})",
-        axis=1
-    )
+def link_maps(lat, lon):
+    return f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
 
-    # Tabla limpia (sin LAT/LONG)
-    tabla = resultado[["CAFE", "UBICACION", "TOSTADOR", "PUNTAJE", "DIST_KM", "CUADRAS", "COMO_LLEGAR"]].copy()
-    tabla["DIST_KM"] = tabla["DIST_KM"].round(3)
-    tabla["CUADRAS"] = tabla["CUADRAS"].round(1)
+# Crear columna con el link
+tabla = resultado.copy()
+tabla["DIST_KM"] = tabla["DIST_KM"].round(3)
+tabla["CUADRAS"] = tabla["CUADRAS"].round(1)
 
-    st.dataframe(tabla, use_container_width=True, hide_index=True)
+# Esta columna guarda el link final
+tabla["COMO_LLEGAR"] = tabla.apply(
+    lambda r: link_maps(r["LAT"], r["LONG"]),
+    axis=1
+)
+
+# MOSTRAR TABLA SIN LAT/LONG usando LinkColumn
+st.dataframe(
+    tabla[["CAFE", "UBICACION", "TOSTADOR", "PUNTAJE", "DIST_KM", "CUADRAS", "COMO_LLEGAR"]],
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "COMO_LLEGAR": st.column_config.LinkColumn(
+            "Cómo llegar",
+            help="Abrir en Google Maps",
+            display_text="Abrir Maps"
+        )
+    }
+)
 
     # ================================
     # MAPA PYDECK SIN MAPBOX (funciona siempre)
