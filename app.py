@@ -3,40 +3,45 @@ import pandas as pd
 from geopy.distance import geodesic
 
 st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wide")
-
 st.title("☕ Buscador de Cafés Cercanos")
-
-cafes = pd.read_csv("Cafes.csv")
-
 st.write("Permitir ubicación para encontrar cafés cercanos.")
 
-user_location = st.experimental_get_query_params()
+# ---------- Lectura de datos ----------
+@st.cache_data
+def load_cafes(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    # Validación básica de columnas esperadas
+    cols_req = {"CAFE", "UBICACION", "PUNTAJE", "TOSTADOR", "LAT", "LONG"}
+    faltantes = cols_req - set(df.columns)
+    if faltantes:
+        st.error(f"Faltan columnas en Cafes.csv: {', '.join(sorted(faltantes))}")
+        st.stop()
+    return df
 
-lat = st.number_input("Tu latitud")
-lon = st.number_input("Tu longitud")
+cafes = load_cafes("Cafes.csv")
 
-if st.button("Buscar cafés cercanos"):
+# ---------- Utilidades ----------
+def parse_float(x):
+    if x is None or x == "":
+        return None
+    try:
+        return float(x)
+    except ValueError:
+        return None
 
-    if lat != 0 and lon != 0:
+# ---------- Leer lat/lon de query params (API nueva) ----------
+# Si estás en una versión vieja, esto seguirá existiendo como atributo ausente,
+# pero acá asumimos la versión nueva (que es lo que rompe el experimental).
+params = {}
+if hasattr(st, "query_params"):
+    # st.query_params es un Mapping[str, str]
+    params = dict(st.query_params)
 
-        user_coords = (lat, lon)
+lat_qp = parse_float(params.get("lat"))
+lon_qp = parse_float(params.get("lon"))
 
-        cafes["Distancia_km"] = cafes.apply(
-            lambda row: geodesic(user_coords, (row["LAT"], row["LONG"])).km,
-            axis=1
-        )
-
-        cafes_ordenado = cafes.sort_values("Distancia_km")
-
-        st.subheader("☕ Cafés más cercanos")
-
-        for index, row in cafes_ordenado.head(5).iterrows():
-            st.markdown(f"""
-            ### {row['CAFE']}
-            📍 {row['UBICACION']}  
-            ⭐ Puntaje: {row['PUNTAJE']}  
-            🔥 Tostador: {row['TOSTADOR']}  
-            📏 Distancia: {row['Distancia_km']:.2f} km
-            ---
-            """)
-
+# ---------- Inputs con valores por defecto de la URL (si existen) ----------
+col1, col2 = st.columns(2)
+with col1:
+    lat = st.number_input("Tu latitud", value=lat_qp if lat_qp is not None else 0.0, format="%.6f")
+with col2:
