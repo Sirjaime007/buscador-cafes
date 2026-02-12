@@ -23,21 +23,18 @@ def load_cafes(path: str) -> pd.DataFrame:
             break
         except Exception:
             continue
-
     if df is None:
         df = pd.read_csv(path, dtype=str)
 
-    # Fix de tildes/mojibake
     def fix_text(x):
         try:
             return x.encode("latin1").decode("utf-8")
-        except:
+        except Exception:
             return x
 
     for col in df.select_dtypes(include="object"):
         df[col] = df[col].apply(lambda x: fix_text(str(x)) if x is not None else x)
 
-    # Normalizador numérico
     def fix_number(x):
         if x is None:
             return None
@@ -56,10 +53,11 @@ def load_cafes(path: str) -> pd.DataFrame:
 
     return df
 
+
 cafes = load_cafes("Cafes.csv")
 
 # ================================
-# Geocoder
+# Geocoder ArcGIS
 # ================================
 @st.cache_resource
 def get_geocoder():
@@ -74,13 +72,17 @@ def geocode_address(address: str):
 # ================================
 # Inputs
 # ================================
-col1, col2 = st.columns([3, 1])
+col1, col2, col3 = st.columns([3, 1, 1])
 
 with col1:
     direccion = st.text_input("Dirección", "Av. Colón 1500")
 
 with col2:
     radio_km = st.number_input("Radio (km)", min_value=0.1, value=2.0, step=0.1)
+
+with col3:
+    agrupar = st.checkbox("Agrupar (zoom alejado)", value=True,
+                          help="Usa un mapa de densidad para mejorar el rendimiento cuando hay muchos puntos.")
 
 # ================================
 # Acción principal
@@ -91,7 +93,7 @@ if st.button("🔎 Buscar cafés cercanos"):
         coord_user = geocode_address(direccion)
 
     if coord_user is None:
-        st.error("No se encontró la dirección.")
+        st.error("No se encontró la dirección. Probá agregar la altura o revisar la calle.")
         st.stop()
 
     st.success("Dirección encontrada ✔️")
@@ -105,6 +107,7 @@ if st.button("🔎 Buscar cafés cercanos"):
     )
     cafes_validos["CUADRAS"] = cafes_validos["DIST_KM"] * 1000 / 87
 
+    # Filtrar por radio
     resultado = cafes_validos[cafes_validos["DIST_KM"] <= radio_km] \
         .sort_values("DIST_KM") \
         .reset_index(drop=True)
@@ -116,7 +119,7 @@ if st.button("🔎 Buscar cafés cercanos"):
         st.stop()
 
     # ============================
-    # TABLA CON BOTÓN “ABRIR MAPS”
+    # TABLA + Link a Google Maps
     # ============================
     def link_maps(lat, lon):
         return f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
@@ -132,65 +135,92 @@ if st.button("🔎 Buscar cafés cercanos"):
         hide_index=True,
         column_config={
             "COMO_LLEGAR": st.column_config.LinkColumn(
-                "Cómo llegar",
-                help="Abrir en Google Maps",
-                display_text="Abrir Maps"
+                "Cómo llegar", help="Abrir en Google Maps", display_text="Abrir Maps"
             )
         }
     )
 
     # ================================
-    # MAPA PYDECK (sin Mapbox)
+    # MAPA (IconLayer + colores por puntaje + agrupación opcional)
     # ================================
     st.subheader("Mapa")
 
+    # Data para el mapa
     map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"})[
-        ["lat", "lon", "CAFE", "UBICACION"]
+        ["lat", "lon", "CAFE", "UBICACION", "PUNTAJE"]
     ].dropna()
-
     map_df["lat"] = pd.to_numeric(map_df["lat"], errors="coerce")
     map_df["lon"] = pd.to_numeric(map_df["lon"], errors="coerce")
+    map_df["PUNTAJE"] = pd.to_numeric(map_df["PUNTAJE"], errors="coerce")
     map_df = map_df.dropna(subset=["lat", "lon"])
 
-    cafes_layer = pdk.Layer(
-        "ScatterplotLayer",
+    if map_df.empty:
+        st.info("No hay coordenadas válidas para el mapa.")
+        st.stop()
+
+    # ---- Color por puntaje (rojo<6, naranja 6–8, verde>=8) ----
+    def color_por_puntaje(p):
+        try:
+            p = float(p)
+        except Exception:
+            return [120, 120, 120, 230]  # gris si no hay puntaje
+        if p >= 8.0:
+            return [0, 170, 80, 230]     # verde
+        if p >= 6.0:
+            return [255, 140, 0, 230]    # naranja
+        return [220, 0, 0, 230]          # rojo
+
+    map_df["COLOR"] = map_df["PUNTAJE"].apply(color_por_puntaje)
+
+    # ---- IconLayer (atlas público de deck.gl) ----
+    # TODO (opcional): cambiar 'icon_atlas' por URL de una taza PNG si me la pasás.
+    icon_atlas = "https://raw.githubusercontent.com/visgl/deck.gl-data/master/website/icon-atlas.png"
+    icon_mapping = "https://raw.githubusercontent.com/visgl/deck.gl-data/master/website/icon-atlas.json"
+    # En ese atlas vamos a usar el ícono 'marker' (ya definido en el mapping)
+    map_df = map_df.assign(icon_name="marker", size=3)  # size escalable: 2–4 queda bien
+
+    icon_layer = pdk.Layer(
+        "IconLayer",
+        data=map_df,
+        get_icon="icon_name",
+        get_position=["lon", "lat"],
+        get_size="size",
+        size_scale=8,                # 8 px aprox (pequeño)
+        icon_atlas=icon_atlas,
+        icon_mapping=icon_mapping,
+        get_color="COLOR",
+        pickable=True
+    )
+
+    # ---- Capa de densidad para "agrupar" cuando hay muchos puntos ----
+    # Si está activo 'agrupar', mostramos una capa HeatmapLayer (no requiere token)
+    heat_layer = pdk.Layer(
+        "HeatmapLayer",
         data=map_df,
         get_position=["lon", "lat"],
-        get_radius=12,
-        radius_units="meters",
-        get_fill_color=[0, 0, 0, 200],
-    )
+        get_weight="PUNTAJE",    # más peso a mejores puntajes
+        radius_pixels=40,        # cuanto mayor, más agrupación visual
+    ) if agrupar else None
 
-    cross_layer = pdk.Layer(
-        "TextLayer",
-        data=map_df.assign(text="＋"),
-        get_position=["lon", "lat"],
-        get_text="text",
-        get_size=24,
-        get_color=[0, 0, 0],
-        get_alignment_baseline="'center'"
-    )
-
+    # ---- Tu ubicación ----
     user_layer = pdk.Layer(
         "ScatterplotLayer",
         data=pd.DataFrame([{"lat": coord_user[0], "lon": coord_user[1]}]),
         get_position=["lon", "lat"],
-        get_radius=20,
+        get_radius=18,
         radius_units="meters",
         get_fill_color=[0, 120, 255, 220],
     )
 
-    view = pdk.ViewState(
-        latitude=coord_user[0],
-        longitude=coord_user[1],
-        zoom=14
-    )
+    view = pdk.ViewState(latitude=coord_user[0], longitude=coord_user[1], zoom=14)
+
+    layers = [icon_layer, user_layer] if not agrupar else [heat_layer, icon_layer, user_layer]
 
     deck = pdk.Deck(
-        layers=[cafes_layer, cross_layer, user_layer],
+        layers=layers,
         initial_view_state=view,
-        tooltip={"html": "<b>{CAFE}</b><br/>{UBICACION}"},
-        map_style=None
+        tooltip={"html": "<b>{CAFE}</b><br/>{UBICACION}<br/>Puntaje: {PUNTAJE}"},
+        map_style=None  # sin token
     )
 
     st.pydeck_chart(deck, use_container_width=True, height=520)
