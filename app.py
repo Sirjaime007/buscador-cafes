@@ -16,7 +16,6 @@ st.write("Ingresá una **dirección de Mar del Plata** y te mostramos los cafés
 # ================================
 @st.cache_data
 def load_cafes(path: str) -> pd.DataFrame:
-    # Intentamos leer con codificaciones comunes
     df = None
     for enc in ["utf-8", "utf-8-sig", "cp1252", "latin-1"]:
         try:
@@ -25,47 +24,42 @@ def load_cafes(path: str) -> pd.DataFrame:
         except Exception:
             continue
 
-    # Intento final sin especificar encoding
     if df is None:
         df = pd.read_csv(path, dtype=str)
 
-    # Fix de mojibake (HipÃ³lito → Hipólito, Â¿ → ¿)
+    # Fix de tildes/mojibake
     def fix_text(x):
         try:
             return x.encode("latin1").decode("utf-8")
-        except Exception:
+        except:
             return x
 
     for col in df.select_dtypes(include="object"):
         df[col] = df[col].apply(lambda x: fix_text(str(x)) if x is not None else x)
 
-    # Normalizador de números (mantiene decimales)
+    # Normalizador numérico
     def fix_number(x):
         if x is None:
             return None
         x = str(x).strip()
         if x == "":
             return None
-        # -38,0056 -> -38.0056
         if x.count(",") == 1 and x.count(".") == 0:
             return x.replace(",", ".")
-        # 1.234,567 -> 1234.567
         if x.count(".") == 1 and x.count(",") == 1:
             return x.replace(".", "").replace(",", ".")
         return x
 
-    # Convertir a numérico sin perder decimales
     df["LAT"] = pd.to_numeric(df["LAT"].apply(fix_number), errors="coerce")
     df["LONG"] = pd.to_numeric(df["LONG"].apply(fix_number), errors="coerce")
     df["PUNTAJE"] = pd.to_numeric(df["PUNTAJE"].apply(fix_number), errors="coerce")
 
     return df
 
-
 cafes = load_cafes("Cafes.csv")
 
 # ================================
-# Geocoder ArcGIS
+# Geocoder
 # ================================
 @st.cache_resource
 def get_geocoder():
@@ -89,7 +83,7 @@ with col2:
     radio_km = st.number_input("Radio (km)", min_value=0.1, value=2.0, step=0.1)
 
 # ================================
-# Acción
+# Acción principal
 # ================================
 if st.button("🔎 Buscar cafés cercanos"):
 
@@ -97,7 +91,7 @@ if st.button("🔎 Buscar cafés cercanos"):
         coord_user = geocode_address(direccion)
 
     if coord_user is None:
-        st.error("No se encontró la dirección. Probá agregar la altura o revisar la calle.")
+        st.error("No se encontró la dirección.")
         st.stop()
 
     st.success("Dirección encontrada ✔️")
@@ -111,7 +105,6 @@ if st.button("🔎 Buscar cafés cercanos"):
     )
     cafes_validos["CUADRAS"] = cafes_validos["DIST_KM"] * 1000 / 87
 
-    # Filtrar por radio
     resultado = cafes_validos[cafes_validos["DIST_KM"] <= radio_km] \
         .sort_values("DIST_KM") \
         .reset_index(drop=True)
@@ -123,10 +116,9 @@ if st.button("🔎 Buscar cafés cercanos"):
         st.stop()
 
     # ============================
-    # TABLA CON LINK A GOOGLE MAPS
+    # TABLA CON BOTÓN “ABRIR MAPS”
     # ============================
     def link_maps(lat, lon):
-        # OJO: sin entidades HTML; coma normal entre lat,lon
         return f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
 
     tabla = resultado.copy()
@@ -148,7 +140,7 @@ if st.button("🔎 Buscar cafés cercanos"):
     )
 
     # ================================
-    # MAPA PYDECK SIN MAPBOX (funciona siempre)
+    # MAPA PYDECK (sin Mapbox)
     # ================================
     st.subheader("Mapa")
 
@@ -156,24 +148,17 @@ if st.button("🔎 Buscar cafés cercanos"):
         ["lat", "lon", "CAFE", "UBICACION"]
     ].dropna()
 
-    # Asegurar tipo numérico
     map_df["lat"] = pd.to_numeric(map_df["lat"], errors="coerce")
     map_df["lon"] = pd.to_numeric(map_df["lon"], errors="coerce")
     map_df = map_df.dropna(subset=["lat", "lon"])
 
-    if map_df.empty:
-        st.info("No hay coordenadas válidas para el mapa.")
-        st.stop()
-
-    # Café → punto pequeño + cruz
     cafes_layer = pdk.Layer(
         "ScatterplotLayer",
         data=map_df,
         get_position=["lon", "lat"],
-        get_radius=12,                # puntito chico (~12 m)
+        get_radius=12,
         radius_units="meters",
-        get_fill_color=[0, 0, 0, 180],
-        pickable=True
+        get_fill_color=[0, 0, 0, 200],
     )
 
     cross_layer = pdk.Layer(
@@ -182,28 +167,30 @@ if st.button("🔎 Buscar cafés cercanos"):
         get_position=["lon", "lat"],
         get_text="text",
         get_size=24,
-        get_color=[0, 0, 0, 255],
+        get_color=[0, 0, 0],
         get_alignment_baseline="'center'"
     )
 
-    # Tu ubicación (punto celeste sutil)
     user_layer = pdk.Layer(
         "ScatterplotLayer",
         data=pd.DataFrame([{"lat": coord_user[0], "lon": coord_user[1]}]),
         get_position=["lon", "lat"],
-        get_radius=18,
+        get_radius=20,
         radius_units="meters",
-        get_fill_color=[0, 100, 255, 220],
+        get_fill_color=[0, 120, 255, 220],
     )
 
-    view = pdk.ViewState(latitude=coord_user[0], longitude=coord_user[1], zoom=14)
+    view = pdk.ViewState(
+        latitude=coord_user[0],
+        longitude=coord_user[1],
+        zoom=14
+    )
 
     deck = pdk.Deck(
         layers=[cafes_layer, cross_layer, user_layer],
         initial_view_state=view,
         tooltip={"html": "<b>{CAFE}</b><br/>{UBICACION}"},
-        map_style=None  # sin token
+        map_style=None
     )
 
     st.pydeck_chart(deck, use_container_width=True, height=520)
-``
