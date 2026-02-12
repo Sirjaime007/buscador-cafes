@@ -16,31 +16,53 @@ st.write("Ingresá una **dirección de Mar del Plata** y te mostramos los cafés
 
 @st.cache_data
 def load_cafes(path: str) -> pd.DataFrame:
-    # Leer con codificación adecuada
-    df = pd.read_csv(path, encoding="latin-1")
+    # Leer con la codificación correcta
+    df = pd.read_csv(path, encoding="latin-1", dtype=str)  
+    # dtype=str ES CLAVE: evita que Pandas trunque números
 
-    # Validar columnas requeridas
+    # Validar columnas obligatorias
     required_cols = {"CAFE","UBICACION","TOSTADOR","PUNTAJE","LAT","LONG"}
     if not required_cols.issubset(df.columns):
         st.error(f"El CSV no contiene estas columnas: {required_cols}")
         st.stop()
 
-    # 🔥 CORRECCIÓN CLAVE: convertir coma → punto en coordenadas
-    df["LAT"] = df["LAT"].astype(str).str.replace(",", ".", regex=False)
-    df["LONG"] = df["LONG"].astype(str).str.replace(",", ".", regex=False)
+    # -------------------------------
+    # NORMALIZADOR AVANZADO DE NÚMEROS
+    # Mantiene todos los decimales siempre
+    # -------------------------------
+    def fix_number(x):
+        if pd.isna(x):
+            return None
+        x = x.strip()
 
-    # Convertir a número
+        # Caso 1: formato AR: -38,0056 → -38.0056
+        if x.count(",") == 1 and x.count(".") == 0:
+            return x.replace(",", ".")
+
+        # Caso 2: miles + decimales: 1.234,567 → 1234.567
+        if x.count(".") == 1 and x.count(",") == 1:
+            x = x.replace(".", "").replace(",", ".")
+            return x
+
+        # Caso 3: formato raro (dejamos como viene)
+        return x
+
+    # Aplicar a coordenadas y puntajes (SIN truncado)
+    df["LAT"] = df["LAT"].apply(fix_number)
+    df["LONG"] = df["LONG"].apply(fix_number)
+    df["PUNTAJE"] = df["PUNTAJE"].apply(fix_number)
+
+    # Convertir ahora sí a float conservando decimales
     df["LAT"] = pd.to_numeric(df["LAT"], errors="coerce")
     df["LONG"] = pd.to_numeric(df["LONG"], errors="coerce")
     df["PUNTAJE"] = pd.to_numeric(df["PUNTAJE"], errors="coerce")
 
-    # Si después de convertir no hay coordenadas válidas, avisamos
+    # Verificar coordenadas válidas
     if df["LAT"].isna().all() or df["LONG"].isna().all():
-        st.error("Las coordenadas LAT/LONG del CSV no son válidas. Verificá el formato.")
+        st.error("Error: No hay coordenadas válidas. Revisá LAT/LONG en el CSV.")
         st.stop()
 
     return df
-  
 
 
 cafes = load_cafes("Cafes.csv")
