@@ -265,19 +265,26 @@ if st.button("🔎 Buscar cafés cercanos", use_container_width=True):
     # ============================
     # Votar (simple, en una línea)
     # ============================
-    st.subheader("Votar tu café favorito (simple)")
-    v1, v2, v3 = st.columns([3, 2, 1])
-    with v1:
-        cafe_sel = st.selectbox("Café", options=list(resultado["CAFE"].unique()), label_visibility="collapsed")
-    with v2:
-        puntaje_sel = st.slider("Puntaje (1–10)", 1.0, 10.0, 8.0, 0.5, label_visibility="collapsed")
-    with v3:
-        if st.button("Votar", use_container_width=True):
-            try:
-                upsert_vote(voter_id=voter_id, cafe_name=cafe_sel, score=puntaje_sel)
-                st.success(f"¡Voto guardado para **{cafe_sel}** con {puntaje_sel} puntos!")
-            except Exception as e:
-                st.error(f"No se pudo guardar el voto en Google Sheets: {e}")
+   import streamlit as st
+
+st.subheader("⭐ Votá tu café favorito")
+
+cafes_lista = cafes["CAFE"].unique().tolist()
+
+# Inicializar estado
+if "voto_enviado" not in st.session_state:
+    st.session_state.voto_enviado = False
+
+with st.form("form_votacion", clear_on_submit=True):
+    cafe_elegido = st.selectbox("Elegí un café", cafes_lista)
+    puntaje = st.slider("Puntaje", 1.0, 10.0, 8.0, step=0.5)
+
+    enviar = st.form_submit_button("Votar")
+
+    if enviar:
+        guardar_voto_google_sheets(cafe_elegido, puntaje)
+        st.session_state.voto_enviado = True
+
 
     # ============================
     # Ranking global (Google Sheets)
