@@ -4,14 +4,12 @@ from datetime import datetime
 from geopy.distance import geodesic
 from geopy.geocoders import ArcGIS
 import pydeck as pdk
-import uuid
 
-# Google Sheets
 import gspread
 from google.oauth2.service_account import Credentials
 
 # =========================
-# CONFIG
+# CONFIGURACIÓN
 # =========================
 st.set_page_config(
     page_title="Buscador de Cafés",
@@ -28,7 +26,7 @@ VOTES_SHEET = "Votos Cafes"
 # =========================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/drive"
 ]
 
 @st.cache_resource
@@ -56,7 +54,7 @@ def cargar_votos():
         return pd.DataFrame(columns=["timestamp", "cafe", "puntaje"])
 
 # =========================
-# CARGA CAFÉS
+# CARGA DE CAFÉS
 # =========================
 @st.cache_data
 def load_cafes():
@@ -75,7 +73,7 @@ cafes = load_cafes()
 def get_geocoder():
     return ArcGIS(timeout=10)
 
-def geocode(address):
+def geocode_address(address):
     loc = get_geocoder().geocode(
         f"{address}, Mar del Plata, Buenos Aires, Argentina"
     )
@@ -84,47 +82,53 @@ def geocode(address):
     return None
 
 # =========================
-# SESSION
-# =========================
-if "voter_id" not in st.session_state:
-    st.session_state.voter_id = str(uuid.uuid4())
-
-# =========================
-# UI
+# INTERFAZ
 # =========================
 st.title("☕ Buscador de Cafés")
 st.caption("Buscá cafés cercanos, miralos en el mapa y votá tu favorito")
 
 col1, col2 = st.columns([3, 1])
+
 with col1:
     direccion = st.text_input("Dirección", "Av. Colón 1500")
+
 with col2:
-    radio_km = st.number_input("Radio (km)", 0.1, 10.0, 2.0, 0.1)
+    radio_km = st.number_input(
+        "Radio (km)",
+        min_value=0.1,
+        max_value=10.0,
+        value=2.0,
+        step=0.1
+    )
 
 buscar = st.button("🔎 Buscar cafés", use_container_width=True)
 
 # =========================
-# BUSCAR
+# BÚSQUEDA
 # =========================
 if buscar:
-    coord = geocode(direccion)
-    if not coord:
-        st.error("No se pudo encontrar la dirección")
+    coord_user = geocode_address(direccion)
+
+    if coord_user is None:
+        st.error("No se pudo encontrar la dirección.")
         st.stop()
 
-   cafes_calc["DIST_KM"] = [
-    geodesic(coord, (lat, lon)).km
-    for lat, lon in zip(cafes_calc["LAT"], cafes_calc["LONG"])
-]
-    )
-    cafes_calc["CUADRAS"] = cafes_calc["DIST_KM"] * 1000 / CUADRA_METROS
+    cafes_calc = cafes.copy()
+    cafes_calc["DIST_KM"] = []
 
-    resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km].sort_values("DIST_KM")
+    for lat, lon in zip(cafes_calc["LAT"], cafes_calc["LONG"]):
+        cafes_calc["DIST_KM"].append(
+            geodesic(coord_user, (lat, lon)).km
+        )
+
+    cafes_calc["CUADRAS"] = cafes_calc["DIST_KM"] * 1000 / CUADRA_METROS
+    resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
+    resultado = resultado.sort_values("DIST_KM")
 
     st.subheader("📍 Cafés cercanos")
 
     if resultado.empty:
-        st.info("No hay cafés en ese radio")
+        st.info("No hay cafés en ese radio.")
         st.stop()
 
     st.dataframe(
@@ -138,9 +142,11 @@ if buscar:
     # =========================
     st.subheader("🗺️ Mapa")
 
-    map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"})
+    map_df = resultado.rename(
+        columns={"LAT": "lat", "LONG": "lon"}
+    )
 
-    layer_cafes = pdk.Layer(
+    cafes_layer = pdk.Layer(
         "ScatterplotLayer",
         data=map_df,
         get_position=["lon", "lat"],
@@ -150,9 +156,12 @@ if buscar:
         pickable=True
     )
 
-    layer_user = pdk.Layer(
+    user_layer = pdk.Layer(
         "ScatterplotLayer",
-        data=pd.DataFrame([{"lat": coord[0], "lon": coord[1]}]),
+        data=pd.DataFrame([{
+            "lat": coord_user[0],
+            "lon": coord_user[1]
+        }]),
         get_position=["lon", "lat"],
         get_radius=90,
         radius_units="meters",
@@ -160,10 +169,10 @@ if buscar:
     )
 
     deck = pdk.Deck(
-        layers=[layer_cafes, layer_user],
+        layers=[cafes_layer, user_layer],
         initial_view_state=pdk.ViewState(
-            latitude=coord[0],
-            longitude=coord[1],
+            latitude=coord_user[0],
+            longitude=coord_user[1],
             zoom=14
         ),
         getTooltip="""
@@ -180,26 +189,36 @@ Puntaje: {PUNTAJE}
 # =========================
 st.subheader("⭐ Votá tu café favorito")
 
-with st.form("votar"):
-    cafe_sel = st.selectbox("Café", cafes["CAFE"].unique())
-    puntaje = st.slider("Puntaje", 1.0, 10.0, 8.0, 0.5)
+with st.form("votacion"):
+    cafe_sel = st.selectbox(
+        "Café",
+        cafes["CAFE"].unique()
+    )
+    puntaje = st.slider(
+        "Puntaje",
+        1.0,
+        10.0,
+        8.0,
+        0.5
+    )
     enviar = st.form_submit_button("Votar")
 
     if enviar:
         guardar_voto(cafe_sel, puntaje)
-        st.success("¡Voto guardado! ☕")
+        st.success("¡Voto guardado correctamente! ☕")
 
 # =========================
 # RANKING
 # =========================
 st.subheader("🏆 Ranking")
 
-votes = cargar_votos()
-if votes.empty:
-    st.info("Todavía no hay votos")
+votes_df = cargar_votos()
+
+if votes_df.empty:
+    st.info("Todavía no hay votos.")
 else:
     ranking = (
-        votes.groupby("cafe")["puntaje"]
+        votes_df.groupby("cafe")["puntaje"]
         .agg(["count", "mean"])
         .reset_index()
         .rename(columns={
@@ -209,6 +228,11 @@ else:
         })
         .sort_values(["Promedio", "Votos"], ascending=False)
     )
+
     ranking["Promedio"] = ranking["Promedio"].round(2)
 
-    st.dataframe(ranking, use_container_width=True, hide_index=True)
+    st.dataframe(
+        ranking,
+        use_container_width=True,
+        hide_index=True
+    )
