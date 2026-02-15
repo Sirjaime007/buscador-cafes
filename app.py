@@ -14,6 +14,27 @@ from google.oauth2.service_account import Credentials
 # =========================================
 # CONFIGURACIÓN
 # =========================================
+def guardar_voto_google_sheets(cafe, puntaje):
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scopes
+    )
+
+    client = gspread.authorize(creds)
+
+    sheet = client.open("Votos Cafes").sheet1
+    sheet.append_row([
+        datetime.now().isoformat(),
+        cafe,
+        puntaje
+    ])
+
+
 st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wide")
 st.title("☕ Buscador de Cafés Cercanos")
 st.caption("Ingresá una **dirección de Mar del Plata**. Mostramos cafés cercanos, podés **votar** tu favorito y abajo verás un **índice completo** ordenado por cercanía.")
@@ -24,6 +45,9 @@ GSHEET_NAME = "cafes_reviews"   # <-- nombre de tu Google Sheet (pestaña princi
 # =========================================
 # UTILIDADES: Google Sheets
 # =========================================
+
+
+
 SCOPE = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
