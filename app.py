@@ -265,7 +265,6 @@ if st.button("🔎 Buscar cafés cercanos", use_container_width=True):
     # ============================
     # Votar (simple, en una línea)
     # ============================
-   import streamlit as st
 
 st.subheader("⭐ Votá tu café favorito")
 
