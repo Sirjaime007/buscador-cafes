@@ -112,10 +112,10 @@ if buscar:
         st.error("No se pudo encontrar la dirección")
         st.stop()
 
-    cafes_calc = cafes.copy()
-    cafes_calc["DIST_KM"] = cafes_calc.apply(
-        lambda r: geodesic(coord, (r["LAT"], r["LONG"])).km,
-        axis=1
+   cafes_calc["DIST_KM"] = [
+    geodesic(coord, (lat, lon)).km
+    for lat, lon in zip(cafes_calc["LAT"], cafes_calc["LONG"])
+]
     )
     cafes_calc["CUADRAS"] = cafes_calc["DIST_KM"] * 1000 / CUADRA_METROS
 
