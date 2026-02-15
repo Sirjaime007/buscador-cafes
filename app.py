@@ -281,7 +281,11 @@ if st.button("🔎 Buscar cafés cercanos", use_container_width=True):
     deck = pdk.Deck(
         layers=[icon_layer, user_layer],
         initial_view_state=view,
-        tooltip={"html": "<b>{CAFE}</b><br/>{UBICACION}<br/>Puntaje: {PUNTAJE}"},
+       getTooltip="""
+<b>{CAFE}</b><br/>
+{UBICACION}<br/>
+Puntaje: {PUNTAJE}
+"""
         map_style=None  # sin token
     )
     st.pydeck_chart(deck, use_container_width=True, height=420)
