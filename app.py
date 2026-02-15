@@ -1,238 +1,174 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from geopy.geocoders import Nominatim
 from geopy.distance import geodesic
-from geopy.geocoders import ArcGIS
 import pydeck as pdk
 
-import gspread
-from google.oauth2.service_account import Credentials
+# ---------------------------------
+# CONFIG
+# ---------------------------------
+st.set_page_config(page_title="Buscador de Cafés", layout="wide")
 
-# =========================
-# CONFIGURACIÓN
-# =========================
-st.set_page_config(
-    page_title="Buscador de Cafés",
-    page_icon="☕",
-    layout="wide"
-)
-
-CUADRA_METROS = 87
-CAFES_CSV = "Cafes.csv"
-VOTES_SHEET = "Votos Cafes"
-
-# =========================
-# GOOGLE SHEETS
-# =========================
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-
-@st.cache_resource
-def get_sheet():
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=SCOPES
-    )
-    client = gspread.authorize(creds)
-    return client.open(VOTES_SHEET).sheet1
-
-def guardar_voto(cafe, puntaje):
-    sheet = get_sheet()
-    sheet.append_row([
-        datetime.utcnow().isoformat(),
-        cafe,
-        float(puntaje)
-    ])
-
-def cargar_votos():
-    try:
-        rows = get_sheet().get_all_records()
-        return pd.DataFrame(rows)
-    except Exception:
-        return pd.DataFrame(columns=["timestamp", "cafe", "puntaje"])
-
-# =========================
-# CARGA DE CAFÉS
-# =========================
+# ---------------------------------
+# CARGA CSV
+# ---------------------------------
 @st.cache_data
-def load_cafes():
-    df = pd.read_csv(CAFES_CSV)
-    df["LAT"] = pd.to_numeric(df["LAT"], errors="coerce")
-    df["LONG"] = pd.to_numeric(df["LONG"], errors="coerce")
-    df["PUNTAJE"] = pd.to_numeric(df["PUNTAJE"], errors="coerce")
+def cargar_cafes():
+    df = pd.read_csv("cafes.csv")
+
+    # Normalizar columnas
+    df.columns = [c.strip() for c in df.columns]
+
+    # Corregir decimales con coma
+    df["LAT"] = (
+        df["LAT"]
+        .astype(str)
+        .str.replace(",", ".", regex=False)
+        .astype(float)
+    )
+
+    df["LONG"] = (
+        df["LONG"]
+        .astype(str)
+        .str.replace(",", ".", regex=False)
+        .astype(float)
+    )
+
+    # Puntaje con coma decimal
+    df["PUNTAJE"] = (
+        df["PUNTAJE"]
+        .astype(str)
+        .str.replace(",", ".", regex=False)
+        .astype(float)
+    )
+
     return df.dropna(subset=["LAT", "LONG"])
 
-cafes = load_cafes()
+cafes = cargar_cafes()
 
-# =========================
-# GEOCODER
-# =========================
-@st.cache_resource
-def get_geocoder():
-    return ArcGIS(timeout=10)
+# ---------------------------------
+# SESSION STATE (para que NO se recargue)
+# ---------------------------------
+if "direccion" not in st.session_state:
+    st.session_state.direccion = ""
 
-def geocode_address(address):
-    loc = get_geocoder().geocode(
-        f"{address}, Mar del Plata, Buenos Aires, Argentina"
-    )
-    if loc:
-        return loc.latitude, loc.longitude
-    return None
+if "radio" not in st.session_state:
+    st.session_state.radio = 2
 
-# =========================
-# INTERFAZ
-# =========================
+# ---------------------------------
+# UI
+# ---------------------------------
 st.title("☕ Buscador de Cafés")
-st.caption("Buscá cafés cercanos, miralos en el mapa y votá tu favorito")
+
+st.markdown("Buscá cafés cerca de una dirección. **No necesitás latitud ni longitud.**")
 
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    direccion = st.text_input("Dirección", "Av. Colón 1500")
+    direccion = st.text_input(
+        "Dirección",
+        placeholder="Ej: Alberti 2900, Mar del Plata",
+        value=st.session_state.direccion
+    )
 
 with col2:
-    radio_km = st.number_input(
+    radio_km = st.slider(
         "Radio (km)",
-        min_value=0.1,
-        max_value=10.0,
-        value=2.0,
-        step=0.1
+        0.5, 5.0,
+        value=st.session_state.radio,
+        step=0.5
     )
 
-buscar = st.button("🔎 Buscar cafés", use_container_width=True)
+buscar = st.button("Buscar cafés")
 
-# =========================
-# BÚSQUEDA
-# =========================
-if buscar:
-    coord_user = geocode_address(direccion)
+# ---------------------------------
+# GEOCODING
+# ---------------------------------
+def geocodificar(direccion):
+    geolocator = Nominatim(user_agent="buscador_cafes")
+    location = geolocator.geocode(direccion + ", Mar del Plata, Argentina")
+    if location:
+        return location.latitude, location.longitude
+    return None, None
 
-    if coord_user is None:
-        st.error("No se pudo encontrar la dirección.")
-        st.stop()
+# ---------------------------------
+# BUSQUEDA
+# ---------------------------------
+if buscar and direccion.strip():
+    st.session_state.direccion = direccion
+    st.session_state.radio = radio_km
 
-    cafes_calc = cafes.copy()
-    cafes_calc["DIST_KM"] = []
+    lat_user, lon_user = geocodificar(direccion)
 
-    for lat, lon in zip(cafes_calc["LAT"], cafes_calc["LONG"]):
-        cafes_calc["DIST_KM"].append(
-            geodesic(coord_user, (lat, lon)).km
+    if lat_user is None:
+        st.error("No se pudo encontrar esa dirección 😕")
+    else:
+        cafes_calc = cafes.copy()
+
+        cafes_calc["DIST_KM"] = cafes_calc.apply(
+            lambda row: geodesic(
+                (lat_user, lon_user),
+                (row["LAT"], row["LONG"])
+            ).km,
+            axis=1
         )
 
-    cafes_calc["CUADRAS"] = cafes_calc["DIST_KM"] * 1000 / CUADRA_METROS
-    resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
-    resultado = resultado.sort_values("DIST_KM")
+        resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
 
-    st.subheader("📍 Cafés cercanos")
+        if resultado.empty:
+            st.warning("No se encontraron cafés en ese radio ☹️")
+        else:
+            resultado = resultado.sort_values("DIST_KM")
 
-    if resultado.empty:
-        st.info("No hay cafés en ese radio.")
-        st.stop()
+            # ---------------------------------
+            # MAPA
+            # ---------------------------------
+            st.subheader("📍 Cafés cercanos")
 
-    st.dataframe(
-        resultado[["CAFE", "UBICACION", "TOSTADOR", "PUNTAJE", "DIST_KM", "CUADRAS"]],
-        use_container_width=True,
-        hide_index=True
-    )
+            layer = pdk.Layer(
+                "ScatterplotLayer",
+                data=resultado,
+                get_position='[LONG, LAT]',
+                get_radius=60,
+                pickable=True,
+                get_fill_color=[200, 30, 0, 180],
+            )
 
-    # =========================
-    # MAPA
-    # =========================
-    st.subheader("🗺️ Mapa")
+            view_state = pdk.ViewState(
+                latitude=lat_user,
+                longitude=lon_user,
+                zoom=14,
+            )
 
-    map_df = resultado.rename(
-        columns={"LAT": "lat", "LONG": "lon"}
-    )
+            st.pydeck_chart(
+                pdk.Deck(
+                    layers=[layer],
+                    initial_view_state=view_state,
+                    tooltip={
+                        "html": "<b>{CAFE}</b><br/>{UBICACION}<br/>⭐ {PUNTAJE}<br/>{DIST_KM:.2f} km"
+                    }
+                )
+            )
 
-    cafes_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=map_df,
-        get_position=["lon", "lat"],
-        get_radius=60,
-        radius_units="meters",
-        get_fill_color=[200, 30, 0, 180],
-        pickable=True
-    )
+            # ---------------------------------
+            # LISTA
+            # ---------------------------------
+            st.subheader("☕ Resultados")
 
-    user_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=pd.DataFrame([{
-            "lat": coord_user[0],
-            "lon": coord_user[1]
-        }]),
-        get_position=["lon", "lat"],
-        get_radius=90,
-        radius_units="meters",
-        get_fill_color=[0, 120, 255, 220]
-    )
+            for _, row in resultado.iterrows():
+                st.markdown(
+                    f"""
+                    **{row['CAFE']}**  
+                    📍 {row['UBICACION']}  
+                    🔥 Tostador: {row['TOSTADOR']}  
+                    ⭐ Puntaje: {row['PUNTAJE']}  
+                    📏 Distancia: {row['DIST_KM']:.2f} km  
+                    🕒 Abre domingos: {row['¿ Abre los domingos ?']}  
+                    ---
+                    """
+                )
 
-    deck = pdk.Deck(
-        layers=[cafes_layer, user_layer],
-        initial_view_state=pdk.ViewState(
-            latitude=coord_user[0],
-            longitude=coord_user[1],
-            zoom=14
-        ),
-        getTooltip="""
-<b>{CAFE}</b><br/>
-{UBICACION}<br/>
-Puntaje: {PUNTAJE}
-"""
-    )
-
-    st.pydeck_chart(deck, use_container_width=True)
-
-# =========================
-# VOTACIÓN
-# =========================
-st.subheader("⭐ Votá tu café favorito")
-
-with st.form("votacion"):
-    cafe_sel = st.selectbox(
-        "Café",
-        cafes["CAFE"].unique()
-    )
-    puntaje = st.slider(
-        "Puntaje",
-        1.0,
-        10.0,
-        8.0,
-        0.5
-    )
-    enviar = st.form_submit_button("Votar")
-
-    if enviar:
-        guardar_voto(cafe_sel, puntaje)
-        st.success("¡Voto guardado correctamente! ☕")
-
-# =========================
-# RANKING
-# =========================
-st.subheader("🏆 Ranking")
-
-votes_df = cargar_votos()
-
-if votes_df.empty:
-    st.info("Todavía no hay votos.")
-else:
-    ranking = (
-        votes_df.groupby("cafe")["puntaje"]
-        .agg(["count", "mean"])
-        .reset_index()
-        .rename(columns={
-            "cafe": "CAFE",
-            "count": "Votos",
-            "mean": "Promedio"
-        })
-        .sort_values(["Promedio", "Votos"], ascending=False)
-    )
-
-    ranking["Promedio"] = ranking["Promedio"].round(2)
-
-    st.dataframe(
-        ranking,
-        use_container_width=True,
-        hide_index=True
-    )
+# ---------------------------------
+# FOOTER
+# ---------------------------------
+st.caption("Datos cargados desde Google Sheets · Proyecto Buscador de Cafés ☕")
