@@ -22,8 +22,7 @@ st.title("☕ Buscador de Cafés en Mar del Plata")
 def cargar_cafes():
     df = pd.read_csv("Cafes.csv", dtype=str)
 
-    # Normalizar números con coma
-    for col in ["LAT", "LONG", "PUNTAJE"]:
+    for col in ["LAT", "LONG"]:
         df[col] = (
             df[col]
             .str.replace(".", "", regex=False)
@@ -31,8 +30,7 @@ def cargar_cafes():
         )
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df = df.dropna(subset=["LAT", "LONG"])
-    return df
+    return df.dropna(subset=["LAT", "LONG"])
 
 cafes = cargar_cafes()
 
@@ -45,26 +43,23 @@ def get_geocoder():
 
 def geocodificar(direccion):
     geo = get_geocoder()
-    loc = geo.geocode(f"{direccion}, Mar del Plata, Argentina")
+    loc = geo.geocode(f"{direccion}, Mar del Plata, Buenos Aires, Argentina")
     if loc:
-        return (loc.latitude, loc.longitude)
+        return loc.latitude, loc.longitude
     return None
 
 # =========================
 # UI
 # =========================
 direccion = st.text_input(
-    "Dirección",
+    "📍 Dirección",
     value="Av. Colón 1500",
     placeholder="Ej: Alberti 2500"
 )
 
 radio_km = st.slider(
-    "Radio de búsqueda (km)",
-    min_value=0.5,
-    max_value=5.0,
-    value=2.0,
-    step=0.5
+    "📏 Radio de búsqueda (km)",
+    0.5, 5.0, 2.0, 0.5
 )
 
 buscar = st.button("🔍 Buscar cafés")
@@ -76,32 +71,30 @@ if buscar:
     coords = geocodificar(direccion)
 
     if coords is None:
-        st.error("No se pudo encontrar la dirección")
+        st.error("No se pudo geocodificar la dirección 😕")
         st.stop()
 
     cafes_calc = cafes.copy()
 
     cafes_calc["DIST_KM"] = cafes_calc.apply(
-        lambda r: geodesic(
-            coords,
-            (r["LAT"], r["LONG"])
-        ).km,
+        lambda r: geodesic(coords, (r["LAT"], r["LONG"])).km,
         axis=1
     )
 
-    resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
-    resultado = resultado.sort_values("DIST_KM")
+    resultado = (
+        cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
+        .sort_values("DIST_KM")
+    )
 
     if resultado.empty:
-        st.warning("No hay cafés en ese radio")
+        st.warning("No se encontraron cafés en ese radio ☹️")
         st.stop()
 
-    st.subheader("☕ Cafés encontrados")
+    st.subheader(f"☕ Cafés encontrados ({len(resultado)})")
 
     st.dataframe(
-        resultado[
-            ["CAFE", "UBICACION", "TOSTADOR", "PUNTAJE", "DIST_KM"]
-        ].assign(DIST_KM=lambda x: x["DIST_KM"].round(2)),
+        resultado[["CAFE", "UBICACION", "TOSTADOR", "DIST_KM"]]
+        .assign(DIST_KM=lambda x: x["DIST_KM"].round(2)),
         use_container_width=True,
         hide_index=True
     )
@@ -111,16 +104,14 @@ if buscar:
     # =========================
     st.subheader("🗺️ Mapa")
 
-    map_df = resultado.rename(
-        columns={"LAT": "lat", "LONG": "lon"}
-    )
+    map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"})
 
     layer_cafes = pdk.Layer(
         "ScatterplotLayer",
         data=map_df,
         get_position=["lon", "lat"],
-        get_radius=80,
-        get_fill_color=[200, 30, 0, 160],
+        get_radius=90,
+        get_fill_color=[200, 50, 50, 160],
         pickable=True
     )
 
@@ -131,7 +122,7 @@ if buscar:
             "lon": coords[1]
         }]),
         get_position=["lon", "lat"],
-        get_radius=120,
+        get_radius=130,
         get_fill_color=[0, 120, 255, 200]
     )
 
@@ -145,7 +136,7 @@ if buscar:
         layers=[layer_cafes, layer_user],
         initial_view_state=view_state,
         tooltip={
-            "text": "{CAFE}\n{UBICACION}\nPuntaje: {PUNTAJE}"
+            "text": "{CAFE}\n{UBICACION}\nDistancia: {DIST_KM} km"
         }
     )
 
