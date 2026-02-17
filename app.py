@@ -42,7 +42,6 @@ def cargar_cafes():
         )
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Filtrar coordenadas inválidas
     df = df[
         df["LAT"].between(-90, 90) &
         df["LONG"].between(-180, 180)
@@ -83,11 +82,12 @@ direccion = st.text_input(
 
 radio_km = st.slider(
     "📏 Radio de búsqueda (km)",
-    min_value=0.5,
-    max_value=5.0,
-    value=2.0,
-    step=0.5
+    0.5, 5.0, 2.0, 0.5
 )
+
+# --- Filtro por tostador ---
+tostadores = ["Todos"] + sorted(cafes["TOSTADOR"].dropna().unique())
+filtro_tostador = st.selectbox("🏷️ Filtrar por tostador", tostadores)
 
 buscar = st.button("🔍 Buscar cafés")
 
@@ -104,32 +104,46 @@ if buscar:
     cafes_calc = cafes.copy()
 
     cafes_calc["DIST_KM"] = cafes_calc.apply(
-        lambda r: geodesic(
-            coords,
-            (r["LAT"], r["LONG"])
-        ).km,
+        lambda r: geodesic(coords, (r["LAT"], r["LONG"])).km,
         axis=1
     )
 
-    resultado = (
-        cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
-        .sort_values("DIST_KM")
-    )
+    resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
+
+    # --- aplicar filtro de tostador ---
+    if filtro_tostador != "Todos":
+        resultado = resultado[resultado["TOSTADOR"] == filtro_tostador]
+
+    resultado = resultado.sort_values("DIST_KM")
 
     if resultado.empty:
-        st.warning("No se encontraron cafés en ese radio ☹️")
+        st.warning("No se encontraron cafés con esos filtros ☹️")
         st.stop()
 
     # =========================
     # TABLA
     # =========================
+    resultado["DIST_TXT"] = resultado["DIST_KM"].apply(
+        lambda km: f"{int(km*1000)} m" if km < 1 else f"{km:.2f} km"
+    )
+
+    resultado["MAPS"] = resultado.apply(
+        lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}",
+        axis=1
+    )
+
     st.subheader(f"☕ Cafés encontrados ({len(resultado)})")
 
     st.dataframe(
-        resultado[["CAFE", "UBICACION", "TOSTADOR", "DIST_KM"]]
-        .assign(DIST_KM=lambda x: x["DIST_KM"].round(2)),
+        resultado[["CAFE", "UBICACION", "TOSTADOR", "DIST_TXT", "MAPS"]],
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        column_config={
+            "MAPS": st.column_config.LinkColumn(
+                "Abrir en Maps",
+                display_text="📍 Google Maps"
+            )
+        }
     )
 
     # =========================
@@ -137,14 +151,18 @@ if buscar:
     # =========================
     st.subheader("🗺️ Mapa")
 
-    map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"})
+    map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
+
+    # --- color por cercanía ---
+    map_df["color"] = [[200, 50, 50, 160]] * len(map_df)
+    map_df.iloc[0, map_df.columns.get_loc("color")] = [0, 200, 0, 220]  # más cercano
 
     layer_cafes = pdk.Layer(
         "ScatterplotLayer",
         data=map_df,
         get_position=["lon", "lat"],
         get_radius=90,
-        get_fill_color=[200, 50, 50, 160],
+        get_fill_color="color",
         pickable=True
     )
 
@@ -169,7 +187,7 @@ if buscar:
         layers=[layer_cafes, layer_user],
         initial_view_state=view_state,
         tooltip={
-            "text": "{CAFE}\n{UBICACION}\nDistancia: {DIST_KM} km"
+            "text": "{CAFE}\n{UBICACION}\nDistancia: {DIST_TXT}"
         }
     )
 
