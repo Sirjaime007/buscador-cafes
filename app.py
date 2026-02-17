@@ -155,7 +155,9 @@ if buscar:
 
     # --- color por cercanía ---
     map_df["color"] = [[200, 50, 50, 160]] * len(map_df)
-    map_df.iloc[0, map_df.columns.get_loc("color")] = [0, 200, 0, 220]  # más cercano
+
+idx_mas_cercano = map_df.index[0]
+map_df.at[idx_mas_cercano, "color"] = [0, 200, 0, 220]  # más cercano
 
     layer_cafes = pdk.Layer(
         "ScatterplotLayer",
