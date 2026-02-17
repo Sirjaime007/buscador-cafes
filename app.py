@@ -16,14 +16,24 @@ st.set_page_config(
 st.title("☕ Buscador de Cafés en Mar del Plata")
 
 # =========================
-# CARGA CSV
+# CARGA DESDE GOOGLE SHEETS
 # =========================
-@st.cache_data(ttl=300)  # se refresca cada 5 minutos
+@st.cache_data(ttl=300)  # refresca cada 5 minutos
 def cargar_cafes():
-    url = "https://docs.google.com/spreadsheets/d/10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI/d/ID/export?format=csv"
+    url = (
+        "https://docs.google.com/spreadsheets/d/"
+        "10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
+        "/export?format=csv"
+    )
 
-    df = pd.read_csv(url, dtype=str)
+    try:
+        df = pd.read_csv(url, dtype=str)
+    except Exception as e:
+        st.error("❌ No se pudo cargar la planilla de Google Sheets")
+        st.exception(e)
+        return None
 
+    # Normalizar coordenadas
     for col in ["LAT", "LONG"]:
         df[col] = (
             df[col]
@@ -33,6 +43,14 @@ def cargar_cafes():
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df.dropna(subset=["LAT", "LONG"])
+
+# =========================
+# CARGAR DATA
+# =========================
+cafes = cargar_cafes()
+
+if cafes is None or cafes.empty:
+    st.stop()
 
 # =========================
 # GEOCODER
@@ -59,7 +77,10 @@ direccion = st.text_input(
 
 radio_km = st.slider(
     "📏 Radio de búsqueda (km)",
-    0.5, 5.0, 2.0, 0.5
+    min_value=0.5,
+    max_value=5.0,
+    value=2.0,
+    step=0.5
 )
 
 buscar = st.button("🔍 Buscar cafés")
@@ -71,13 +92,16 @@ if buscar:
     coords = geocodificar(direccion)
 
     if coords is None:
-        st.error("No se pudo geocodificar la dirección 😕")
+        st.error("No se pudo encontrar la dirección 😕")
         st.stop()
 
     cafes_calc = cafes.copy()
 
     cafes_calc["DIST_KM"] = cafes_calc.apply(
-        lambda r: geodesic(coords, (r["LAT"], r["LONG"])).km,
+        lambda r: geodesic(
+            coords,
+            (r["LAT"], r["LONG"])
+        ).km,
         axis=1
     )
 
@@ -90,6 +114,9 @@ if buscar:
         st.warning("No se encontraron cafés en ese radio ☹️")
         st.stop()
 
+    # =========================
+    # TABLA
+    # =========================
     st.subheader(f"☕ Cafés encontrados ({len(resultado)})")
 
     st.dataframe(
