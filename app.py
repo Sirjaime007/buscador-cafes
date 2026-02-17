@@ -26,17 +26,11 @@ def cargar_cafes():
         "/export?format=csv"
     )
 
-    try:
-        df = pd.read_csv(url, dtype=str)
-    except Exception as e:
-        st.error("❌ No se pudo cargar la planilla de Google Sheets")
-        st.exception(e)
-        return None
+    df = pd.read_csv(url, dtype=str)
 
     for col in ["LAT", "LONG"]:
         df[col] = (
             df[col]
-            .astype(str)
             .str.strip()
             .str.replace(",", ".", regex=False)
         )
@@ -49,12 +43,11 @@ def cargar_cafes():
 
     return df
 
-# =========================
-# CARGAR DATA
-# =========================
+
 cafes = cargar_cafes()
 
 if cafes is None or cafes.empty:
+    st.error("No hay datos de cafés 😕")
     st.stop()
 
 # =========================
@@ -85,7 +78,6 @@ radio_km = st.slider(
     0.5, 5.0, 2.0, 0.5
 )
 
-# --- Filtro por tostador ---
 tostadores = ["Todos"] + sorted(cafes["TOSTADOR"].dropna().unique())
 filtro_tostador = st.selectbox("🏷️ Filtrar por tostador", tostadores)
 
@@ -110,7 +102,6 @@ if buscar:
 
     resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
 
-    # --- aplicar filtro de tostador ---
     if filtro_tostador != "Todos":
         resultado = resultado[resultado["TOSTADOR"] == filtro_tostador]
 
@@ -153,11 +144,10 @@ if buscar:
 
     map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
 
-    # --- color por cercanía ---
+    # colores: rojo = normal, verde = más cercano
     map_df["color"] = [[200, 50, 50, 160]] * len(map_df)
-
-idx_mas_cercano = map_df.index[0]
-map_df.at[idx_mas_cercano, "color"] = [0, 200, 0, 220]  # más cercano
+    idx_mas_cercano = map_df.index[0]
+    map_df.at[idx_mas_cercano, "color"] = [0, 200, 0, 220]
 
     layer_cafes = pdk.Layer(
         "ScatterplotLayer",
