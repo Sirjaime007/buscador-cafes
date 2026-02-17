@@ -18,7 +18,7 @@ st.title("☕ Buscador de Cafés en Mar del Plata")
 # =========================
 # CARGA DESDE GOOGLE SHEETS
 # =========================
-@st.cache_data(ttl=300)  # refresca cada 5 minutos
+@st.cache_data(ttl=300)
 def cargar_cafes():
     url = (
         "https://docs.google.com/spreadsheets/d/"
@@ -33,16 +33,22 @@ def cargar_cafes():
         st.exception(e)
         return None
 
-    # Normalizar coordenadas
     for col in ["LAT", "LONG"]:
         df[col] = (
             df[col]
-            .str.replace(".", "", regex=False)
+            .astype(str)
+            .str.strip()
             .str.replace(",", ".", regex=False)
         )
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    return df.dropna(subset=["LAT", "LONG"])
+    # Filtrar coordenadas inválidas
+    df = df[
+        df["LAT"].between(-90, 90) &
+        df["LONG"].between(-180, 180)
+    ]
+
+    return df
 
 # =========================
 # CARGAR DATA
