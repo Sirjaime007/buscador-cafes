@@ -18,9 +18,11 @@ st.title("☕ Buscador de Cafés en Mar del Plata")
 # =========================
 # CARGA CSV
 # =========================
-@st.cache_data
+@st.cache_data(ttl=300)  # se refresca cada 5 minutos
 def cargar_cafes():
-    df = pd.read_csv("Cafes.csv", dtype=str)
+    url = "https://docs.google.com/spreadsheets/d/10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI/d/ID/export?format=csv"
+
+    df = pd.read_csv(url, dtype=str)
 
     for col in ["LAT", "LONG"]:
         df[col] = (
@@ -31,8 +33,6 @@ def cargar_cafes():
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df.dropna(subset=["LAT", "LONG"])
-
-cafes = cargar_cafes()
 
 # =========================
 # GEOCODER
