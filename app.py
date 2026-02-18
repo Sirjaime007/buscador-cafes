@@ -20,8 +20,8 @@ st.title("☕ Buscador de Cafés")
 # =========================
 CIUDADES = {
     "Mar del Plata": "0",
-    "La Plata": "XXXXXXXX",
-    "Buenos Aires": "YYYYYYYY"
+    "La Plata": "XXXXXXXX",       # <-- reemplazá
+    "Buenos Aires": "YYYYYYYY"    # <-- reemplazá
 }
 
 BASE_URL = (
@@ -30,7 +30,7 @@ BASE_URL = (
 )
 
 # =========================
-# CARGA CAFÉS
+# CARGA CAFÉS (ROBUSTA)
 # =========================
 @st.cache_data(ttl=300)
 def cargar_cafes(gid):
@@ -40,14 +40,21 @@ def cargar_cafes(gid):
     for col in ["LAT", "LONG"]:
         df[col] = (
             df[col]
+            .str.strip()
             .str.replace(",", ".", regex=False)
-            .astype(float)
         )
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # eliminar filas inválidas
+    df = df[
+        df["LAT"].between(-90, 90) &
+        df["LONG"].between(-180, 180)
+    ]
 
     return df
 
 # =========================
-# CARGA TOSTADORES
+# CARGA TOSTADORES (GLOBAL)
 # =========================
 @st.cache_data(ttl=300)
 def cargar_tostadores():
@@ -72,6 +79,7 @@ def geocodificar(direccion, ciudad):
 # UI SUPERIOR
 # =========================
 ciudad = st.selectbox("🌎 Ciudad", list(CIUDADES.keys()))
+
 cafes = cargar_cafes(CIUDADES[ciudad])
 tostadores = cargar_tostadores()
 
@@ -91,17 +99,24 @@ with tabs[0]:
         0.5, 5.0, 2.0, 0.5
     )
 
-    tostadores_lista = ["Todos"] + sorted(cafes["TOSTADOR"].unique())
-    filtro_tostador = st.selectbox("🏷️ Filtrar por tostador", tostadores_lista)
+    tostadores_lista = ["Todos"] + sorted(
+        cafes["TOSTADOR"].dropna().unique()
+    )
+
+    filtro_tostador = st.selectbox(
+        "🏷️ Filtrar por tostador",
+        tostadores_lista
+    )
 
     if st.button("🔍 Buscar cafés"):
         coords = geocodificar(direccion, ciudad)
 
         if not coords:
-            st.error("No se pudo encontrar la dirección")
+            st.error("No se pudo encontrar la dirección 😕")
             st.stop()
 
         df = cafes.copy()
+
         df["DIST_KM"] = df.apply(
             lambda r: geodesic(coords, (r["LAT"], r["LONG"])).km,
             axis=1
@@ -115,15 +130,18 @@ with tabs[0]:
         df = df.sort_values("DIST_KM")
 
         if df.empty:
-            st.warning("No se encontraron cafés")
+            st.warning("No se encontraron cafés con esos filtros ☹️")
             st.stop()
 
         df["Distancia"] = df["DIST_KM"].apply(
-            lambda km: f"{int(km*1000)} m" if km < 1 else f"{km:.2f} km"
+            lambda km: f"{int(km * 1000)} m" if km < 1 else f"{km:.2f} km"
         )
 
         df["MAPS"] = df.apply(
-            lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}",
+            lambda r: (
+                "https://www.google.com/maps/search/?api=1"
+                f"&query={r['LAT']},{r['LONG']}"
+            ),
             axis=1
         )
 
@@ -139,9 +157,13 @@ with tabs[0]:
             }
         )
 
+        # =========================
         # MAPA
+        # =========================
         map_df = df.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
         map_df["color"] = [[200, 50, 50, 160]] * len(map_df)
+
+        # más cercano
         map_df.iloc[0, map_df.columns.get_loc("color")] = [0, 200, 0, 220]
 
         st.pydeck_chart(
@@ -171,7 +193,9 @@ with tabs[0]:
                     longitude=coords[1],
                     zoom=14
                 ),
-                tooltip={"text": "{CAFE}\n{UBICACION}\n{Distancia}"}
+                tooltip={
+                    "text": "{CAFE}\n{UBICACION}\n{Distancia}"
+                }
             ),
             use_container_width=True
         )
@@ -183,20 +207,22 @@ with tabs[1]:
     st.subheader("🔥 Tostadores")
 
     tostadores_ciudad = tostadores[
-        (tostadores["CIUDAD"] == "") |
-        (tostadores["CIUDAD"].str.contains(ciudad, case=False))
+        tostadores["CIUDAD"].str.contains(ciudad, case=False, na=False)
     ]
 
-    for _, t in tostadores_ciudad.iterrows():
-        st.markdown(f"### ☕ {t['TOSTADOR']}")
+    if tostadores_ciudad.empty:
+        st.info("No hay tostadores cargados para esta ciudad")
+    else:
+        for _, t in tostadores_ciudad.iterrows():
+            st.markdown(f"### ☕ {t['TOSTADOR']}")
 
-        if t.get("INSTAGRAM"):
-            st.markdown(f"[📸 Instagram]({t['INSTAGRAM']})")
+            if t.get("INSTAGRAM"):
+                st.markdown(f"[📸 Instagram]({t['INSTAGRAM']})")
 
-        if t.get("VARIEDADES"):
-            st.markdown(f"**🌱 Variedades:** {t['VARIEDADES']}")
+            if t.get("VARIEDADES"):
+                st.markdown(f"**🌱 Variedades:** {t['VARIEDADES']}")
 
-        if t.get("CAFETERIAS"):
-            st.markdown(f"**🏪 Cafeterías:** {t['CAFETERIAS']}")
+            if t.get("CAFETERIAS"):
+                st.markdown(f"**🏪 Cafeterías:** {t['CAFETERIAS']}")
 
-        st.divider()
+            st.divider()
