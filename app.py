@@ -105,7 +105,7 @@ if buscar:
     if filtro_tostador != "Todos":
         resultado = resultado[resultado["TOSTADOR"] == filtro_tostador]
 
-    resultado = resultado.sort_values("DIST_KM")
+    resultado = resultado.sort_values("Distancia")
 
     if resultado.empty:
         st.warning("No se encontraron cafés con esos filtros ☹️")
