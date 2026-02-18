@@ -100,7 +100,7 @@ if buscar:
         axis=1
     )
 
-    resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
+    resultado = cafes_calc[cafes_calc["Distancia"] <= radio_km]
 
     if filtro_tostador != "Todos":
         resultado = resultado[resultado["TOSTADOR"] == filtro_tostador]
