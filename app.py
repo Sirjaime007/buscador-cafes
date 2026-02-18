@@ -1,218 +1,112 @@
 import streamlit as st
 import pandas as pd
-from geopy.geocoders import ArcGIS
-from geopy.distance import geodesic
 import pydeck as pdk
 
-# =========================
+# ======================
 # CONFIG
-# =========================
-st.set_page_config(
-    page_title="Buscador de Cafés",
-    page_icon="☕",
-    layout="wide"
-)
+# ======================
+st.set_page_config(page_title="Buscador de Cafés", layout="wide")
 
-st.title("☕ Buscador de Cafés")
+SPREADSHEET_ID = "TU_SPREADSHEET_ID_AQUI"
 
-BASE_URL = "https://docs.google.com/spreadsheets/d/10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
-
-CIUDADES = {
-    "Mar del Plata": "0",
-    "La Plata": "2035362762",
-    "Buenos Aires": "1484696705"
+GID_CAFES = {
+    "Buenos Aires": "0",
+    "La Plata": "123456789"
 }
 
-# =========================
-# CARGA CAFÉS (ROBUSTA)
-# =========================
-@st.cache_data(ttl=300)
+GID_TOSTADORES = "1590442133"
+
+# ======================
+# HELPERS
+# ======================
+def sheet_url(gid: str) -> str:
+    return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
+
+@st.cache_data(ttl=600)
 def cargar_cafes(gid):
-    url = f"{BASE_URL}/export?format=csv&gid={gid}"
-    df = pd.read_csv(url, dtype=str)
+    df = pd.read_csv(sheet_url(gid), dtype=str)
 
-    df.columns = df.columns.str.strip().str.upper()
+    df["LAT"] = pd.to_numeric(df["LAT"].str.replace(",", "."), errors="coerce")
+    df["LON"] = pd.to_numeric(df["LON"].str.replace(",", "."), errors="coerce")
 
-    for col in ["LAT", "LONG"]:
-        df[col] = (
-            df[col]
-            .astype(str)
-            .str.strip()
-            .str.replace(",", ".", regex=False)
-        )
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df = df.dropna(subset=["LAT", "LONG"])
-
+    df = df.dropna(subset=["LAT", "LON"])
     return df
 
-
-# =========================
-# CARGA TOSTADORES (GLOBAL)
-# =========================
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def cargar_tostadores():
-    url = f"{BASE_URL}/export?format=csv&gid=1590442133"
-    df = pd.read_csv(url, dtype=str).fillna("")
-    df.columns = df.columns.str.strip().str.upper()
+    df = pd.read_csv(sheet_url(GID_TOSTADORES), dtype=str)
+
+    df["LAT"] = pd.to_numeric(df["LAT"].str.replace(",", "."), errors="coerce")
+    df["LON"] = pd.to_numeric(df["LON"].str.replace(",", "."), errors="coerce")
+
+    df = df.dropna(subset=["LAT", "LON", "CIUDAD"])
     return df
 
+# ======================
+# UI
+# ======================
+st.title("☕ Buscador de Cafés y Tostadores")
 
-# =========================
-# GEOCODER
-# =========================
-@st.cache_resource
-def get_geocoder():
-    return ArcGIS(timeout=10)
+ciudad = st.selectbox("Elegí una ciudad", list(GID_CAFES.keys()))
 
-
-def geocodificar(direccion, ciudad):
-    geo = get_geocoder()
-    loc = geo.geocode(f"{direccion}, {ciudad}, Argentina")
-    if loc:
-        return loc.latitude, loc.longitude
-    return None
-
-
-# =========================
-# UI SUPERIOR
-# =========================
-ciudad = st.selectbox("🌎 Ciudad", list(CIUDADES.keys()))
-cafes = cargar_cafes(CIUDADES[ciudad])
+cafes = cargar_cafes(GID_CAFES[ciudad])
 tostadores = cargar_tostadores()
+tostadores = tostadores[tostadores["CIUDAD"].str.contains(ciudad, case=False, na=False)]
 
-tabs = st.tabs(["☕ Cafés", "🏷️ Tostadores"])
+# ======================
+# MAP DATA
+# ======================
+map_df = pd.concat([
+    cafes.assign(tipo="Café"),
+    tostadores.assign(tipo="Tostador")
+])
 
-# =========================
-# TAB CAFÉS
-# =========================
-with tabs[0]:
-    direccion = st.text_input("📍 Dirección", value="Av. Colón 1500")
-    radio_km = st.slider("📏 Radio de búsqueda (km)", 0.5, 5.0, 2.0, 0.5)
+map_df["r"] = map_df["tipo"].map({"Café": 200, "Tostador": 255})
+map_df["g"] = map_df["tipo"].map({"Café": 100, "Tostador": 50})
+map_df["b"] = map_df["tipo"].map({"Café": 0, "Tostador": 50})
+map_df["a"] = 160
 
-    tostadores_filtro = ["Todos"] + sorted(cafes["TOSTADOR"].dropna().unique())
-    filtro_tostador = st.selectbox("🏷️ Filtrar por tostador", tostadores_filtro)
+# ======================
+# HEATMAP LIGHT
+# ======================
+heatmap = pdk.Layer(
+    "HeatmapLayer",
+    data=map_df,
+    get_position='[LON, LAT]',
+    aggregation=pdk.types.String("MEAN"),
+    intensity=0.6,
+    radiusPixels=60,
+    threshold=0.03
+)
 
-    buscar = st.button("🔍 Buscar cafés")
+points = pdk.Layer(
+    "ScatterplotLayer",
+    data=map_df,
+    get_position='[LON, LAT]',
+    get_fill_color='[r, g, b, a]',
+    get_radius=70,
+    pickable=True
+)
 
-    if buscar:
-        coords = geocodificar(direccion, ciudad)
+view = pdk.ViewState(
+    latitude=map_df["LAT"].mean(),
+    longitude=map_df["LON"].mean(),
+    zoom=12,
+)
 
-        if coords is None:
-            st.error("No se pudo encontrar la dirección")
-            st.stop()
+st.pydeck_chart(
+    pdk.Deck(
+        layers=[heatmap, points],
+        initial_view_state=view,
+        tooltip={"text": "{NOMBRE}\n{tipo}"}
+    )
+)
 
-        cafes_calc = cafes.copy()
+# ======================
+# TABLES
+# ======================
+st.subheader("📍 Cafés")
+st.dataframe(cafes)
 
-        cafes_calc["DIST_KM"] = cafes_calc.apply(
-            lambda r: geodesic(coords, (r["LAT"], r["LONG"])).km,
-            axis=1
-        )
-
-        resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
-
-        if filtro_tostador != "Todos":
-            resultado = resultado[resultado["TOSTADOR"] == filtro_tostador]
-
-        resultado = resultado.sort_values("DIST_KM")
-
-        if resultado.empty:
-            st.warning("No se encontraron cafés con esos filtros")
-            st.stop()
-
-        # ---- distancia texto ----
-        resultado["DISTANCIA"] = resultado["DIST_KM"].apply(
-            lambda d: f"{int(d*1000)} m" if d < 1 else f"{d:.2f} km"
-        )
-
-        resultado["MAPS"] = resultado.apply(
-            lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}",
-            axis=1
-        )
-
-        st.subheader(f"☕ Cafés encontrados ({len(resultado)})")
-
-        st.dataframe(
-            resultado[["CAFE", "UBICACION", "TOSTADOR", "DISTANCIA", "MAPS"]],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "MAPS": st.column_config.LinkColumn(
-                    "Abrir en Maps",
-                    display_text="📍 Google Maps"
-                )
-            }
-        )
-
-        # =========================
-        # MAPA – HEATMAP LIGHT
-        # =========================
-        st.subheader("🗺️ Mapa")
-
-        map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
-
-        min_d = map_df["DIST_KM"].min()
-        max_d = map_df["DIST_KM"].max()
-
-        def heat_color(d):
-            if max_d == min_d:
-                return [0, 200, 0, 220]
-            ratio = (d - min_d) / (max_d - min_d)
-            r = int(255 * ratio)
-            g = int(200 * (1 - ratio))
-            return [r, g, 0, 200]
-
-        map_df["color"] = map_df["DIST_KM"].apply(heat_color)
-
-        layer_cafes = pdk.Layer(
-            "ScatterplotLayer",
-            data=map_df,
-            get_position=["lon", "lat"],
-            get_radius=90,
-            get_fill_color="color",
-            pickable=True
-        )
-
-        layer_user = pdk.Layer(
-            "ScatterplotLayer",
-            data=pd.DataFrame([{"lat": coords[0], "lon": coords[1]}]),
-            get_position=["lon", "lat"],
-            get_radius=130,
-            get_fill_color=[0, 120, 255, 220]
-        )
-
-        view_state = pdk.ViewState(
-            latitude=coords[0],
-            longitude=coords[1],
-            zoom=14
-        )
-
-        deck = pdk.Deck(
-            layers=[layer_cafes, layer_user],
-            initial_view_state=view_state,
-            tooltip={
-                "text": "{CAFE}\n{UBICACION}\nDistancia: {DISTANCIA}"
-            }
-        )
-
-        st.pydeck_chart(deck, use_container_width=True)
-
-
-# =========================
-# TAB TOSTADORES
-# =========================
-with tabs[1]:
-    st.subheader("🏷️ Tostadores")
-
-    tostadores_ciudad = tostadores[
-        (tostadores["CIUDAD"] == "") |
-        (tostadores["CIUDAD"].str.contains(ciudad, case=False, na=False))
-    ]
-
-    for _, r in tostadores_ciudad.iterrows():
-        st.markdown(f"### ☕ {r['TOSTADOR']}")
-        if r.get("INSTAGRAM"):
-            st.markdown(f"📸 [Instagram]({r['INSTAGRAM']})")
-        if r.get("VARIEDADES"):
-            st.write(f"🌱 Variedades: {r['VARIEDADES']}")
-        st.divider()
+st.subheader("🔥 Tostadores")
+st.dataframe(tostadores)
