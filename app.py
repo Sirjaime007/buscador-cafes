@@ -16,73 +16,43 @@ st.set_page_config(
 st.title("☕ Buscador de Cafés")
 
 # =========================
-# SHEET CONFIG
+# CIUDADES / GID
 # =========================
-SHEET_ID = "10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
-GID_TOSTADORES = "1590442133"
-
 CIUDADES = {
-    "Mar del Plata": {
-        "gid": "0",
-        "geo": "Mar del Plata, Buenos Aires, Argentina"
-    },
-    "La Plata": {
-        "gid": "208452991",
-        "geo": "La Plata, Buenos Aires, Argentina"
-    },
-    "Buenos Aires": {
-        "gid": "1296176686",
-        "geo": "Buenos Aires, Argentina"
-    }
+    "Mar del Plata": "0",
+    "La Plata": "XXXXXXXX",
+    "Buenos Aires": "YYYYYYYY"
 }
 
-# =========================
-# UI - CIUDAD
-# =========================
-ciudad = st.selectbox("🏙️ Ciudad", list(CIUDADES.keys()))
+BASE_URL = (
+    "https://docs.google.com/spreadsheets/d/"
+    "10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
+)
 
 # =========================
-# CARGA DATA
+# CARGA CAFÉS
 # =========================
 @st.cache_data(ttl=300)
 def cargar_cafes(gid):
-    url = (
-        f"https://docs.google.com/spreadsheets/d/"
-        f"{SHEET_ID}/export?format=csv&gid={gid}"
-    )
-    df = pd.read_csv(url, dtype=str)
+    url = f"{BASE_URL}/export?format=csv&gid={gid}"
+    df = pd.read_csv(url, dtype=str).fillna("")
 
     for col in ["LAT", "LONG"]:
         df[col] = (
             df[col]
-            .astype(str)
             .str.replace(",", ".", regex=False)
+            .astype(float)
         )
-        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    return df.dropna(subset=["LAT", "LONG"])
+    return df
 
+# =========================
+# CARGA TOSTADORES
+# =========================
 @st.cache_data(ttl=300)
 def cargar_tostadores():
-    url = (
-        f"https://docs.google.com/spreadsheets/d/"
-        f"{SHEET_ID}/export?format=csv&gid={GID_TOSTADORES}"
-    )
-    return pd.read_csv(url, dtype=str)
-
-cafes = cargar_cafes(CIUDADES[ciudad]["gid"])
-tostadores_df = cargar_tostadores()
-
-if cafes.empty:
-    st.warning("No hay datos de cafés para esta ciudad")
-    st.stop()
-
-# =========================
-# TABS
-# =========================
-tab_busqueda, tab_tostadores = st.tabs(
-    ["☕ Buscar cafés", "🔥 Tostadores"]
-)
+    url = f"{BASE_URL}/export?format=csv&gid=1590442133"
+    return pd.read_csv(url, dtype=str).fillna("")
 
 # =========================
 # GEOCODER
@@ -91,140 +61,142 @@ tab_busqueda, tab_tostadores = st.tabs(
 def get_geocoder():
     return ArcGIS(timeout=10)
 
-def geocodificar(direccion, ciudad_geo):
+def geocodificar(direccion, ciudad):
     geo = get_geocoder()
-    loc = geo.geocode(f"{direccion}, {ciudad_geo}")
+    loc = geo.geocode(f"{direccion}, {ciudad}, Argentina")
     if loc:
         return loc.latitude, loc.longitude
     return None
 
 # =========================
-# TAB 1 - BUSQUEDA
+# UI SUPERIOR
 # =========================
-with tab_busqueda:
-    direccion = st.text_input("📍 Dirección")
-    radio_km = st.slider("📏 Radio (km)", 0.5, 5.0, 2.0, 0.5)
+ciudad = st.selectbox("🌎 Ciudad", list(CIUDADES.keys()))
+cafes = cargar_cafes(CIUDADES[ciudad])
+tostadores = cargar_tostadores()
 
-    tostadores = ["Todos"] + sorted(cafes["TOSTADOR"].dropna().unique())
-    filtro_tostador = st.selectbox("🏷️ Tostador", tostadores)
+tabs = st.tabs(["☕ Cafés", "🔥 Tostadores"])
 
-    buscar = st.button("🔍 Buscar cafés")
+# =====================================================
+# ☕ TAB CAFÉS
+# =====================================================
+with tabs[0]:
+    direccion = st.text_input(
+        "📍 Dirección",
+        value="Av. Colón 1500"
+    )
 
-    if buscar:
-        coords = geocodificar(direccion, CIUDADES[ciudad]["geo"])
-        if coords is None:
-            st.error("No se pudo geocodificar la dirección")
+    radio_km = st.slider(
+        "📏 Radio de búsqueda (km)",
+        0.5, 5.0, 2.0, 0.5
+    )
+
+    tostadores_lista = ["Todos"] + sorted(cafes["TOSTADOR"].unique())
+    filtro_tostador = st.selectbox("🏷️ Filtrar por tostador", tostadores_lista)
+
+    if st.button("🔍 Buscar cafés"):
+        coords = geocodificar(direccion, ciudad)
+
+        if not coords:
+            st.error("No se pudo encontrar la dirección")
             st.stop()
 
-        cafes_calc = cafes.copy()
-        cafes_calc["DIST_KM"] = cafes_calc.apply(
+        df = cafes.copy()
+        df["DIST_KM"] = df.apply(
             lambda r: geodesic(coords, (r["LAT"], r["LONG"])).km,
             axis=1
         )
 
-        resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
-        if filtro_tostador != "Todos":
-            resultado = resultado[resultado["TOSTADOR"] == filtro_tostador]
+        df = df[df["DIST_KM"] <= radio_km]
 
-        resultado = resultado.sort_values("DIST_KM")
-        if resultado.empty:
+        if filtro_tostador != "Todos":
+            df = df[df["TOSTADOR"] == filtro_tostador]
+
+        df = df.sort_values("DIST_KM")
+
+        if df.empty:
             st.warning("No se encontraron cafés")
             st.stop()
 
-        resultado["DISTANCIA"] = resultado["DIST_KM"].apply(
+        df["Distancia"] = df["DIST_KM"].apply(
             lambda km: f"{int(km*1000)} m" if km < 1 else f"{km:.2f} km"
         )
 
-        resultado["MAPS"] = resultado.apply(
-            lambda r: (
-                "https://www.google.com/maps/search/?api=1"
-                f"&query={r['LAT']},{r['LONG']}"
-            ),
+        df["MAPS"] = df.apply(
+            lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}",
             axis=1
         )
 
         st.dataframe(
-            resultado[["CAFE", "UBICACION", "TOSTADOR", "DISTANCIA", "MAPS"]],
-            use_container_width=True,
+            df[["CAFE", "UBICACION", "TOSTADOR", "Distancia", "MAPS"]],
             hide_index=True,
+            use_container_width=True,
             column_config={
                 "MAPS": st.column_config.LinkColumn(
-                    "Maps", display_text="📍 Abrir"
+                    "Google Maps",
+                    display_text="📍 Abrir"
                 )
             }
         )
 
-        st.subheader("🗺️ Mapa")
-
-        map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
+        # MAPA
+        map_df = df.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
         map_df["color"] = [[200, 50, 50, 160]] * len(map_df)
-        map_df.at[map_df.index[0], "color"] = [0, 200, 0, 220]
+        map_df.iloc[0, map_df.columns.get_loc("color")] = [0, 200, 0, 220]
 
-        deck = pdk.Deck(
-            layers=[
-                pdk.Layer(
-                    "ScatterplotLayer",
-                    data=map_df,
-                    get_position=["lon", "lat"],
-                    get_radius=90,
-                    get_fill_color="color",
-                    pickable=True
+        st.pydeck_chart(
+            pdk.Deck(
+                layers=[
+                    pdk.Layer(
+                        "ScatterplotLayer",
+                        data=map_df,
+                        get_position=["lon", "lat"],
+                        get_fill_color="color",
+                        get_radius=90,
+                        pickable=True
+                    ),
+                    pdk.Layer(
+                        "ScatterplotLayer",
+                        data=pd.DataFrame([{
+                            "lat": coords[0],
+                            "lon": coords[1]
+                        }]),
+                        get_position=["lon", "lat"],
+                        get_fill_color=[0, 120, 255, 200],
+                        get_radius=130
+                    )
+                ],
+                initial_view_state=pdk.ViewState(
+                    latitude=coords[0],
+                    longitude=coords[1],
+                    zoom=14
                 ),
-                pdk.Layer(
-                    "ScatterplotLayer",
-                    data=pd.DataFrame([{
-                        "lat": coords[0],
-                        "lon": coords[1]
-                    }]),
-                    get_position=["lon", "lat"],
-                    get_radius=130,
-                    get_fill_color=[0, 120, 255, 200]
-                )
-            ],
-            initial_view_state=pdk.ViewState(
-                latitude=coords[0],
-                longitude=coords[1],
-                zoom=14
+                tooltip={"text": "{CAFE}\n{UBICACION}\n{Distancia}"}
             ),
-            tooltip={
-                "text": "{CAFE}\n{UBICACION}\nDistancia: {DISTANCIA}"
-            }
+            use_container_width=True
         )
 
-        st.pydeck_chart(deck, use_container_width=True)
-
-# =========================
-# TAB 2 - TOSTADORES
-# =========================
-with tab_tostadores:
+# =====================================================
+# 🔥 TAB TOSTADORES
+# =====================================================
+with tabs[1]:
     st.subheader("🔥 Tostadores")
 
-    for _, tost in tostadores_df.iterrows():
-        st.markdown(f"### ☕ {tost['TOSTADOR']}")
+    tostadores_ciudad = tostadores[
+        (tostadores["CIUDAD"] == "") |
+        (tostadores["CIUDAD"].str.contains(ciudad, case=False))
+    ]
 
-        col1, col2 = st.columns([1, 3])
+    for _, t in tostadores_ciudad.iterrows():
+        st.markdown(f"### ☕ {t['TOSTADOR']}")
 
-        with col1:
-            if pd.notna(tost.get("INSTAGRAM")):
-                st.link_button("📸 Instagram", tost["INSTAGRAM"])
+        if t.get("INSTAGRAM"):
+            st.markdown(f"[📸 Instagram]({t['INSTAGRAM']})")
 
-        with col2:
-            if pd.notna(tost.get("DESCRIPCION")):
-                st.write(tost["DESCRIPCION"])
+        if t.get("VARIEDADES"):
+            st.markdown(f"**🌱 Variedades:** {t['VARIEDADES']}")
 
-            if pd.notna(tost.get("VARIEDADES")):
-                st.markdown(f"**Variedades:** {tost['VARIEDADES']}")
-
-        cafes_usan = cafes[
-            cafes["TOSTADOR"] == tost["TOSTADOR"]
-        ]["CAFE"].unique()
-
-        if len(cafes_usan) > 0:
-            st.markdown(
-                "**Cafeterías que lo usan:** " +
-                ", ".join(cafes_usan)
-            )
-        else:
-            st.caption("No hay cafeterías registradas en esta ciudad")
+        if t.get("CAFETERIAS"):
+            st.markdown(f"**🏪 Cafeterías:** {t['CAFETERIAS']}")
 
         st.divider()
