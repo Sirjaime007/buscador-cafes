@@ -13,17 +13,41 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("☕ Buscador de Cafés en Mar del Plata")
+st.title("☕ Buscador de Cafés")
 
 # =========================
-# CARGA DESDE GOOGLE SHEETS
+# CIUDADES / GID
+# =========================
+SHEET_ID = "10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
+
+CIUDADES = {
+    "Mar del Plata": {
+        "gid": "0",
+        "geo": "Mar del Plata, Buenos Aires, Argentina"
+    },
+    "La Plata": {
+        "gid": "208452991",
+        "geo": "La Plata, Buenos Aires, Argentina"
+    },
+    "Buenos Aires": {
+        "gid": "1296176686",
+        "geo": "Buenos Aires, Argentina"
+    }
+}
+
+# =========================
+# UI - CIUDAD
+# =========================
+ciudad = st.selectbox("🏙️ Ciudad", list(CIUDADES.keys()))
+
+# =========================
+# CARGA GOOGLE SHEETS
 # =========================
 @st.cache_data(ttl=300)
-def cargar_cafes():
+def cargar_cafes(gid):
     url = (
-        "https://docs.google.com/spreadsheets/d/"
-        "10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
-        "/export?format=csv"
+        f"https://docs.google.com/spreadsheets/d/"
+        f"{SHEET_ID}/export?format=csv&gid={gid}"
     )
 
     df = pd.read_csv(url, dtype=str)
@@ -31,23 +55,18 @@ def cargar_cafes():
     for col in ["LAT", "LONG"]:
         df[col] = (
             df[col]
-            .str.strip()
+            .astype(str)
             .str.replace(",", ".", regex=False)
         )
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df = df[
-        df["LAT"].between(-90, 90) &
-        df["LONG"].between(-180, 180)
-    ]
-
+    df = df.dropna(subset=["LAT", "LONG"])
     return df
 
+cafes = cargar_cafes(CIUDADES[ciudad]["gid"])
 
-cafes = cargar_cafes()
-
-if cafes is None or cafes.empty:
-    st.error("No hay datos de cafés 😕")
+if cafes.empty:
+    st.warning("No hay datos para esta ciudad")
     st.stop()
 
 # =========================
@@ -57,20 +76,19 @@ if cafes is None or cafes.empty:
 def get_geocoder():
     return ArcGIS(timeout=10)
 
-def geocodificar(direccion):
+def geocodificar(direccion, ciudad_geo):
     geo = get_geocoder()
-    loc = geo.geocode(f"{direccion}, Mar del Plata, Buenos Aires, Argentina")
+    loc = geo.geocode(f"{direccion}, {ciudad_geo}")
     if loc:
         return loc.latitude, loc.longitude
     return None
 
 # =========================
-# UI
+# UI - FILTROS
 # =========================
 direccion = st.text_input(
     "📍 Dirección",
-    value="Av. Colón 1500",
-    placeholder="Ej: Alberti 2500"
+    placeholder="Ej: Av. Colón 1500"
 )
 
 radio_km = st.slider(
@@ -79,7 +97,7 @@ radio_km = st.slider(
 )
 
 tostadores = ["Todos"] + sorted(cafes["TOSTADOR"].dropna().unique())
-filtro_tostador = st.selectbox("🏷️ Filtrar por tostador", tostadores)
+filtro_tostador = st.selectbox("🏷️ Tostador", tostadores)
 
 buscar = st.button("🔍 Buscar cafés")
 
@@ -87,25 +105,25 @@ buscar = st.button("🔍 Buscar cafés")
 # BUSQUEDA
 # =========================
 if buscar:
-    coords = geocodificar(direccion)
+    coords = geocodificar(direccion, CIUDADES[ciudad]["geo"])
 
     if coords is None:
-        st.error("No se pudo encontrar la dirección 😕")
+        st.error("No se pudo geocodificar la dirección 😕")
         st.stop()
 
     cafes_calc = cafes.copy()
 
-    cafes_calc["Distancia"] = cafes_calc.apply(
+    cafes_calc["DIST_KM"] = cafes_calc.apply(
         lambda r: geodesic(coords, (r["LAT"], r["LONG"])).km,
         axis=1
     )
 
-    resultado = cafes_calc[cafes_calc["Distancia"] <= radio_km]
+    resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
 
     if filtro_tostador != "Todos":
         resultado = resultado[resultado["TOSTADOR"] == filtro_tostador]
 
-    resultado = resultado.sort_values("Distancia")
+    resultado = resultado.sort_values("DIST_KM")
 
     if resultado.empty:
         st.warning("No se encontraron cafés con esos filtros ☹️")
@@ -114,7 +132,7 @@ if buscar:
     # =========================
     # TABLA
     # =========================
-    resultado["Distancia"] = resultado["Distancia"].apply(
+    resultado["DIST_TXT"] = resultado["DIST_KM"].apply(
         lambda km: f"{int(km*1000)} m" if km < 1 else f"{km:.2f} km"
     )
 
@@ -123,16 +141,16 @@ if buscar:
         axis=1
     )
 
-    st.subheader(f"☕ Cafés encontrados ({len(resultado)})")
+    st.subheader(f"☕ Cafés encontrados en {ciudad} ({len(resultado)})")
 
     st.dataframe(
-        resultado[["CAFE", "UBICACION", "TOSTADOR", "Distancia", "MAPS"]],
+        resultado[["CAFE", "UBICACION", "TOSTADOR", "DIST_TXT", "MAPS"]],
         use_container_width=True,
         hide_index=True,
         column_config={
             "MAPS": st.column_config.LinkColumn(
-                "Abrir en Maps",
-                display_text="📍 Google Maps"
+                "Google Maps",
+                display_text="📍 Abrir"
             )
         }
     )
@@ -144,10 +162,8 @@ if buscar:
 
     map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
 
-    # colores: rojo = normal, verde = más cercano
     map_df["color"] = [[200, 50, 50, 160]] * len(map_df)
-    idx_mas_cercano = map_df.index[0]
-    map_df.at[idx_mas_cercano, "color"] = [0, 200, 0, 220]
+    map_df.at[map_df.index[0], "color"] = [0, 200, 0, 220]
 
     layer_cafes = pdk.Layer(
         "ScatterplotLayer",
@@ -184,3 +200,4 @@ if buscar:
     )
 
     st.pydeck_chart(deck, use_container_width=True)
+
