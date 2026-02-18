@@ -24,26 +24,25 @@ CIUDADES = {
 }
 
 # =========================
-# CARGA CAFÉS
+# CARGA CAFÉS (ROBUSTA)
 # =========================
 @st.cache_data(ttl=300)
 def cargar_cafes(gid):
     url = f"{BASE_URL}/export?format=csv&gid={gid}"
-    df = pd.read_csv(url, dtype=str).fillna("")
+    df = pd.read_csv(url, dtype=str)
 
     df.columns = df.columns.str.strip().str.upper()
 
     for col in ["LAT", "LONG"]:
         df[col] = (
             df[col]
+            .astype(str)
+            .str.strip()
             .str.replace(",", ".", regex=False)
-            .astype(float)
         )
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df = df[
-        df["LAT"].between(-90, 90) &
-        df["LONG"].between(-180, 180)
-    ]
+    df = df.dropna(subset=["LAT", "LONG"])
 
     return df
 
@@ -91,7 +90,7 @@ with tabs[0]:
     direccion = st.text_input("📍 Dirección", value="Av. Colón 1500")
     radio_km = st.slider("📏 Radio de búsqueda (km)", 0.5, 5.0, 2.0, 0.5)
 
-    tostadores_filtro = ["Todos"] + sorted(cafes["TOSTADOR"].unique())
+    tostadores_filtro = ["Todos"] + sorted(cafes["TOSTADOR"].dropna().unique())
     filtro_tostador = st.selectbox("🏷️ Filtrar por tostador", tostadores_filtro)
 
     buscar = st.button("🔍 Buscar cafés")
@@ -100,7 +99,7 @@ with tabs[0]:
         coords = geocodificar(direccion, ciudad)
 
         if coords is None:
-            st.error("No se pudo geocodificar la dirección")
+            st.error("No se pudo encontrar la dirección")
             st.stop()
 
         cafes_calc = cafes.copy()
