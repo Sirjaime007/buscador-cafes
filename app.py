@@ -95,7 +95,7 @@ if buscar:
 
     cafes_calc = cafes.copy()
 
-    cafes_calc["DIST_KM"] = cafes_calc.apply(
+    cafes_calc["Distancia"] = cafes_calc.apply(
         lambda r: geodesic(coords, (r["LAT"], r["LONG"])).km,
         axis=1
     )
@@ -114,7 +114,7 @@ if buscar:
     # =========================
     # TABLA
     # =========================
-    resultado["DIST_TXT"] = resultado["DIST_KM"].apply(
+    resultado["Distancia"] = resultado["DIST_KM"].apply(
         lambda km: f"{int(km*1000)} m" if km < 1 else f"{km:.2f} km"
     )
 
@@ -126,7 +126,7 @@ if buscar:
     st.subheader(f"☕ Cafés encontrados ({len(resultado)})")
 
     st.dataframe(
-        resultado[["CAFE", "UBICACION", "TOSTADOR", "DIST_TXT", "MAPS"]],
+        resultado[["CAFE", "UBICACION", "TOSTADOR", "Distancia", "MAPS"]],
         use_container_width=True,
         hide_index=True,
         column_config={
