@@ -114,7 +114,7 @@ if buscar:
     # =========================
     # TABLA
     # =========================
-    resultado["Distancia"] = resultado["DIST_KM"].apply(
+    resultado["Distancia"] = resultado["Distancia"].apply(
         lambda km: f"{int(km*1000)} m" if km < 1 else f"{km:.2f} km"
     )
 
