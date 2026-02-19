@@ -1,6 +1,14 @@
+# Código completo para copiar y pegar
+
+Copiá todo este contenido en tu archivo `app.py`.
+
+```python
 import streamlit as st
 import pandas as pd
 import random
+import re
+import unicodedata
+from urllib.parse import quote_plus
 from geopy.geocoders import ArcGIS
 from geopy.distance import geodesic
 import pydeck as pdk
@@ -110,6 +118,63 @@ def normalizar_texto(valor, fallback="Sin dato"):
     return texto
 
 
+def imagen_referencia_cafe(nombre_cafe, ciudad):
+    semilla = quote_plus(
+        f"cafe-{normalizar_texto(nombre_cafe, fallback='cafe')}-{normalizar_texto(ciudad, fallback='ciudad')}"
+    )
+    return f"https://picsum.photos/seed/{semilla}/420/260"
+
+
+def distancia_en_cuadras(dist_km):
+    metros = dist_km * 1000
+    cuadras = int((metros + 99) // 100)
+    return max(cuadras, 1)
+
+
+def texto_normalizado(valor):
+    texto = normalizar_texto(valor, fallback="")
+    texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    texto = re.sub(r"[^a-zA-Z0-9\s]", " ", texto.lower())
+    return re.sub(r"\s+", " ", texto).strip()
+
+
+def geocodificar_desde_cafes(direccion, cafes_df):
+    direccion_norm = texto_normalizado(direccion)
+    if not direccion_norm:
+        return None
+
+    tokens = [t for t in direccion_norm.split() if len(t) >= 3]
+    if not tokens:
+        tokens = direccion_norm.split()
+
+    candidatos = cafes_df.copy()
+    candidatos["UBICACION_NORM"] = candidatos["UBICACION"].fillna("").apply(texto_normalizado)
+    candidatos["CAFE_NORM"] = candidatos["CAFE"].fillna("").apply(texto_normalizado)
+
+    def score(row):
+        texto = f"{row['UBICACION_NORM']} {row['CAFE_NORM']}"
+        return sum(1 for tok in tokens if tok in texto)
+
+    candidatos["MATCH"] = candidatos.apply(score, axis=1)
+    mejor = candidatos.sort_values("MATCH", ascending=False).iloc[0]
+
+    if mejor["MATCH"] <= 0:
+        return None
+
+    return float(mejor["LAT"]), float(mejor["LONG"])
+
+
+def resolver_coordenadas(direccion, ciudad, cafes_df):
+    coords = geocodificar(direccion, ciudad)
+    if coords:
+        return coords, "online"
+
+    coords_local = geocodificar_desde_cafes(direccion, cafes_df)
+    if coords_local:
+        return coords_local, "local"
+
+    return None, None
+
 # =========================
 # UI – SELECT CITY
 # =========================
@@ -158,7 +223,7 @@ with tabs[0]:
     necesita_recomendacion = recomendar_cafe
 
     if necesita_recomendacion:
-        coords = geocodificar(direccion, ciudad)
+        coords, origen_coords = resolver_coordenadas(direccion, ciudad, cafes)
 
         if not coords:
             st.error("No se pudo encontrar la dirección 😕")
@@ -186,7 +251,8 @@ with tabs[0]:
             "DIST_KM": float(recomendado["DIST_KM"]),
             "LAT": recomendado["LAT"],
             "LONG": recomendado["LONG"],
-            "CIUDAD": ciudad
+            "CIUDAD": ciudad,
+            "IMG_URL": imagen_referencia_cafe(recomendado.get("CAFE"), ciudad)
         }
         st.session_state["recomendacion_ciudad"] = ciudad
 
@@ -195,11 +261,7 @@ with tabs[0]:
         and st.session_state["recomendacion_ciudad"] == ciudad
     ):
         recomendacion = st.session_state["recomendacion"]
-        distancia_txt = (
-            f"{int(recomendacion['DIST_KM'] * 1000)} m"
-            if recomendacion["DIST_KM"] < 1
-            else f"{recomendacion['DIST_KM']:.2f} km"
-        )
+        distancia_txt = f"{distancia_en_cuadras(recomendacion['DIST_KM'])} cuadras"
         link_maps = (
             "https://www.google.com/maps/search/?api=1"
             f"&query={recomendacion['LAT']},{recomendacion['LONG']}"
@@ -244,10 +306,15 @@ with tabs[0]:
             )
 
         with right:
+            st.image(
+                recomendacion.get("IMG_URL", imagen_referencia_cafe(recomendacion["CAFE"], recomendacion["CIUDAD"])),
+                caption=f"Imagen referencial de {recomendacion['CAFE']}",
+                use_container_width=True
+            )
             st.metric("Distancia", distancia_txt)
             st.metric("Ciudad", recomendacion["CIUDAD"])
             if st.button("🔄 Otra recomendación", use_container_width=True):
-                coords = geocodificar(direccion, ciudad)
+                coords, origen_coords = resolver_coordenadas(direccion, ciudad, cafes)
                 if not coords:
                     st.error("No se pudo encontrar la dirección 😕")
                     st.stop()
@@ -271,12 +338,13 @@ with tabs[0]:
                     "DIST_KM": float(recomendado["DIST_KM"]),
                     "LAT": recomendado["LAT"],
                     "LONG": recomendado["LONG"],
-                    "CIUDAD": ciudad
+                    "CIUDAD": ciudad,
+                    "IMG_URL": imagen_referencia_cafe(recomendado.get("CAFE"), ciudad)
                 }
                 st.rerun()
 
     if buscar_cafes:
-        coords = geocodificar(direccion, ciudad)
+        coords, origen_coords = resolver_coordenadas(direccion, ciudad, cafes)
 
         if not coords:
             st.error("No se pudo encontrar la dirección 😕")
@@ -465,3 +533,4 @@ with tabs[1]:
                         """,
                         unsafe_allow_html=True
                     )
+```
