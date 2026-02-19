@@ -78,8 +78,15 @@ def get_geocoder():
 
 
 def geocodificar(direccion, ciudad):
+    if not direccion or not direccion.strip():
+        return None
+
     geo = get_geocoder()
-    loc = geo.geocode(f"{direccion}, {ciudad}, Buenos Aires, Argentina")
+    try:
+        loc = geo.geocode(f"{direccion}, {ciudad}, Buenos Aires, Argentina")
+    except Exception:
+        return None
+
     if loc:
         return loc.latitude, loc.longitude
     return None
@@ -92,6 +99,15 @@ def cafes_en_radio(cafes_df, coords, radio_km):
         axis=1
     )
     return cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
+
+
+def normalizar_texto(valor, fallback="Sin dato"):
+    if pd.isna(valor):
+        return fallback
+    texto = str(valor).strip()
+    if texto == "" or texto.lower() == "nan":
+        return fallback
+    return texto
 
 
 # =========================
@@ -133,7 +149,15 @@ with tabs[0]:
     with col_recomendado:
         recomendar_cafe = st.button("🎯 Café recomendado", use_container_width=True)
 
-    if recomendar_cafe:
+    if "recomendacion" not in st.session_state:
+        st.session_state["recomendacion"] = None
+
+    if "recomendacion_ciudad" not in st.session_state:
+        st.session_state["recomendacion_ciudad"] = None
+
+    necesita_recomendacion = recomendar_cafe
+
+    if necesita_recomendacion:
         coords = geocodificar(direccion, ciudad)
 
         if not coords:
@@ -144,23 +168,112 @@ with tabs[0]:
 
         if recomendados.empty:
             st.warning("No encontramos cafés en 750 m para recomendar ☹️")
+            st.session_state["recomendacion"] = None
             st.stop()
 
-        recomendado = recomendados.sample(n=1, random_state=random.randint(0, 10_000_000)).iloc[0]
-        distancia_txt = f"{int(recomendado['DIST_KM'] * 1000)} m" if recomendado['DIST_KM'] < 1 else f"{recomendado['DIST_KM']:.2f} km"
+        recomendado = recomendados.sample(
+            n=1,
+            random_state=random.randint(0, 10_000_000)
+        ).iloc[0]
+
+        st.session_state["recomendacion"] = {
+            "CAFE": normalizar_texto(recomendado.get("CAFE")),
+            "UBICACION": normalizar_texto(recomendado.get("UBICACION")),
+            "TOSTADOR": normalizar_texto(
+                recomendado.get("TOSTADOR"),
+                fallback="Sin tostador cargado"
+            ),
+            "DIST_KM": float(recomendado["DIST_KM"]),
+            "LAT": recomendado["LAT"],
+            "LONG": recomendado["LONG"],
+            "CIUDAD": ciudad
+        }
+        st.session_state["recomendacion_ciudad"] = ciudad
+
+    if (
+        st.session_state["recomendacion"] is not None
+        and st.session_state["recomendacion_ciudad"] == ciudad
+    ):
+        recomendacion = st.session_state["recomendacion"]
+        distancia_txt = (
+            f"{int(recomendacion['DIST_KM'] * 1000)} m"
+            if recomendacion["DIST_KM"] < 1
+            else f"{recomendacion['DIST_KM']:.2f} km"
+        )
         link_maps = (
             "https://www.google.com/maps/search/?api=1"
-            f"&query={recomendado['LAT']},{recomendado['LONG']}"
+            f"&query={recomendacion['LAT']},{recomendacion['LONG']}"
         )
 
-        st.success("☕ Recomendación del momento")
-        st.markdown(f"""
-        **Café:** {recomendado['CAFE']}  
-        **Ubicación:** {recomendado['UBICACION']}  
-        **Tostador:** {recomendado['TOSTADOR']}  
-        **Distancia:** {distancia_txt}  
-        [📍 Ver en Google Maps]({link_maps})
-        """)
+        st.markdown(
+            """
+            <style>
+                .card-recomendado {
+                    background: linear-gradient(180deg, #f7fff9 0%, #eefaf2 100%);
+                    border: 1px solid #cfe8d7;
+                    border-radius: 14px;
+                    padding: 1rem;
+                    margin-top: 0.75rem;
+                }
+                .card-recomendado h4 {
+                    margin: 0 0 0.5rem 0;
+                    color: #1f6f43;
+                }
+                .card-recomendado p {
+                    margin: 0.2rem 0;
+                    color: #1d2a22;
+                }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        left, right = st.columns([2, 1])
+        with left:
+            st.markdown(
+                f"""
+                <div class="card-recomendado">
+                    <h4>☕ Recomendación del momento</h4>
+                    <p><strong>Café:</strong> {recomendacion['CAFE']}</p>
+                    <p><strong>Ubicación:</strong> {recomendacion['UBICACION']}</p>
+                    <p><strong>Tostador:</strong> {recomendacion['TOSTADOR']}</p>
+                    <p><a href="{link_maps}" target="_blank">📍 Ver en Google Maps</a></p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with right:
+            st.metric("Distancia", distancia_txt)
+            st.metric("Ciudad", recomendacion["CIUDAD"])
+            if st.button("🔄 Otra recomendación", use_container_width=True):
+                coords = geocodificar(direccion, ciudad)
+                if not coords:
+                    st.error("No se pudo encontrar la dirección 😕")
+                    st.stop()
+
+                recomendados = cafes_en_radio(cafes, coords, 0.75)
+                if recomendados.empty:
+                    st.warning("No encontramos cafés en 750 m para recomendar ☹️")
+                    st.stop()
+
+                recomendado = recomendados.sample(
+                    n=1,
+                    random_state=random.randint(0, 10_000_000)
+                ).iloc[0]
+                st.session_state["recomendacion"] = {
+                    "CAFE": normalizar_texto(recomendado.get("CAFE")),
+                    "UBICACION": normalizar_texto(recomendado.get("UBICACION")),
+                    "TOSTADOR": normalizar_texto(
+                        recomendado.get("TOSTADOR"),
+                        fallback="Sin tostador cargado"
+                    ),
+                    "DIST_KM": float(recomendado["DIST_KM"]),
+                    "LAT": recomendado["LAT"],
+                    "LONG": recomendado["LONG"],
+                    "CIUDAD": ciudad
+                }
+                st.rerun()
 
     if buscar_cafes:
         coords = geocodificar(direccion, ciudad)
