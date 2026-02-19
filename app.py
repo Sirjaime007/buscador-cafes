@@ -41,7 +41,10 @@ def sheet_url(gid: str) -> str:
 # =========================
 @st.cache_data(ttl=600)
 def cargar_cafes(gid):
-    df = pd.read_csv(sheet_url(gid), dtype=str)
+    try:
+        df = pd.read_csv(sheet_url(gid), dtype=str)
+    except Exception:
+        df = pd.read_csv("Cafes.csv", dtype=str)
 
     df["LAT"] = pd.to_numeric(
         df["LAT"].str.replace(",", ".", regex=False),
@@ -57,7 +60,12 @@ def cargar_cafes(gid):
 
 @st.cache_data(ttl=600)
 def cargar_tostadores():
-    return pd.read_csv(sheet_url(GID_TOSTADORES), dtype=str)
+    try:
+        return pd.read_csv(sheet_url(GID_TOSTADORES), dtype=str)
+    except Exception:
+        return pd.DataFrame(
+            columns=["TOSTADOR", "VARIEDADES", "DESCRIPCION", "INSTAGRAM", "CIUDAD"]
+        )
 
 
 # =========================
@@ -226,18 +234,82 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("🔥 Tostadores")
 
+    st.markdown(
+        """
+        <style>
+            .tostador-card {
+                background: linear-gradient(180deg, #fffef9 0%, #fff9f1 100%);
+                border: 1px solid #f0e1cf;
+                border-radius: 14px;
+                padding: 1rem;
+                min-height: 290px;
+                box-shadow: 0 2px 8px rgba(83, 51, 20, 0.08);
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                gap: 0.65rem;
+            }
+            .tostador-title {
+                margin: 0;
+                color: #5f3512;
+                font-size: 1.08rem;
+            }
+            .tostador-chip {
+                display: inline-block;
+                padding: 0.22rem 0.55rem;
+                border-radius: 999px;
+                background: #f5e6d6;
+                color: #7c4716;
+                font-size: 0.83rem;
+                font-weight: 600;
+            }
+            .tostador-desc {
+                margin: 0;
+                color: #3e2c1d;
+                line-height: 1.35;
+                font-size: 0.92rem;
+            }
+            .ig-btn {
+                display: inline-block;
+                background: linear-gradient(90deg, #f58529, #dd2a7b 60%, #8134af);
+                color: white !important;
+                padding: 0.45rem 0.7rem;
+                border-radius: 8px;
+                font-weight: 700;
+                text-decoration: none;
+                width: fit-content;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     tostadores_ciudad = tostadores[
         tostadores["CIUDAD"]
         .str.contains(ciudad, case=False, na=False)
     ]
 
-    for _, r in tostadores_ciudad.iterrows():
-        st.markdown(f"### ☕ {r['TOSTADOR']}")
-        st.markdown(f"**Variedades:** {r['VARIEDADES']}")
-        st.markdown(r["DESCRIPCION"])
-        st.markdown(
-            f"[📸 Instagram]({r['INSTAGRAM']})",
-            unsafe_allow_html=True
-        )
-        st.divider()
+    if tostadores_ciudad.empty:
+        st.info("No hay tostadores cargados para esta ciudad.")
+    else:
+        tostadores_ciudad = tostadores_ciudad.fillna("-").reset_index(drop=True)
 
+        for i in range(0, len(tostadores_ciudad), 3):
+            cols = st.columns(3)
+            fila = tostadores_ciudad.iloc[i:i + 3]
+
+            for col, (_, r) in zip(cols, fila.iterrows()):
+                with col:
+                    st.markdown(
+                        f"""
+                        <div class="tostador-card"> 
+                            <div>
+                                <h4 class="tostador-title">☕ {r['TOSTADOR']}</h4>
+                                <span class="tostador-chip">🌱 {r['VARIEDADES']}</span>
+                                <p class="tostador-desc">{r['DESCRIPCION']}</p>
+                            </div>
+                            <a class="ig-btn" href="{r['INSTAGRAM']}" target="_blank">📸 Ver Instagram</a>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
