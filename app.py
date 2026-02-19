@@ -3,7 +3,6 @@ import pandas as pd
 import random
 import re
 import unicodedata
-from urllib.parse import quote_plus
 from geopy.geocoders import ArcGIS
 from geopy.distance import geodesic
 import pydeck as pdk
@@ -118,13 +117,6 @@ def rerun_app():
         st.rerun()
     else:
         st.experimental_rerun()
-
-
-def imagen_referencia_cafe(nombre_cafe, ciudad):
-    semilla = quote_plus(
-        f"cafe-{normalizar_texto(nombre_cafe, fallback='cafe')}-{normalizar_texto(ciudad, fallback='ciudad')}"
-    )
-    return f"https://picsum.photos/seed/{semilla}/420/260"
 
 
 def distancia_en_cuadras(dist_km):
@@ -254,8 +246,7 @@ with tabs[0]:
             "DIST_KM": float(recomendado["DIST_KM"]),
             "LAT": recomendado["LAT"],
             "LONG": recomendado["LONG"],
-            "CIUDAD": ciudad,
-            "IMG_URL": imagen_referencia_cafe(recomendado.get("CAFE"), ciudad)
+            "CIUDAD": ciudad
         }
         st.session_state["recomendacion_ciudad"] = ciudad
 
@@ -264,8 +255,7 @@ with tabs[0]:
         and st.session_state["recomendacion_ciudad"] == ciudad
     ):
         recomendacion = st.session_state["recomendacion"]
-        cuadras = distancia_en_cuadras(recomendacion["DIST_KM"])
-        distancia_txt = f"{cuadras} cuadra{'s' if cuadras != 1 else ''}"
+        distancia_txt = f"{distancia_en_cuadras(recomendacion['DIST_KM'])} cuadras"
         link_maps = (
             "https://www.google.com/maps/search/?api=1"
             f"&query={recomendacion['LAT']},{recomendacion['LONG']}"
@@ -310,11 +300,6 @@ with tabs[0]:
             )
 
         with right:
-            st.image(
-                recomendacion.get("IMG_URL", imagen_referencia_cafe(recomendacion["CAFE"], recomendacion["CIUDAD"])),
-                caption=f"Imagen referencial de {recomendacion['CAFE']}",
-                use_container_width=True
-            )
             st.metric("Distancia", distancia_txt)
             st.metric("Ciudad", recomendacion["CIUDAD"])
             if st.button("🔄 Otra recomendación", use_container_width=True):
@@ -342,8 +327,7 @@ with tabs[0]:
                     "DIST_KM": float(recomendado["DIST_KM"]),
                     "LAT": recomendado["LAT"],
                     "LONG": recomendado["LONG"],
-                    "CIUDAD": ciudad,
-                    "IMG_URL": imagen_referencia_cafe(recomendado.get("CAFE"), ciudad)
+                    "CIUDAD": ciudad
                 }
                 rerun_app()
 
