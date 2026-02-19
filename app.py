@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import random
 from geopy.geocoders import ArcGIS
 from geopy.distance import geodesic
 import pydeck as pdk
@@ -84,6 +85,15 @@ def geocodificar(direccion, ciudad):
     return None
 
 
+def cafes_en_radio(cafes_df, coords, radio_km):
+    cafes_calc = cafes_df.copy()
+    cafes_calc["DIST_KM"] = cafes_calc.apply(
+        lambda r: geodesic(coords, (r["LAT"], r["LONG"])).km,
+        axis=1
+    )
+    return cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
+
+
 # =========================
 # UI – SELECT CITY
 # =========================
@@ -117,20 +127,49 @@ with tabs[0]:
         tostadores_disp
     )
 
-    if st.button("🔍 Buscar cafés"):
+    col_buscar, col_recomendado = st.columns(2)
+    with col_buscar:
+        buscar_cafes = st.button("🔍 Buscar cafés", use_container_width=True)
+    with col_recomendado:
+        recomendar_cafe = st.button("🎯 Café recomendado", use_container_width=True)
+
+    if recomendar_cafe:
         coords = geocodificar(direccion, ciudad)
 
         if not coords:
             st.error("No se pudo encontrar la dirección 😕")
             st.stop()
 
-        cafes_calc = cafes.copy()
-        cafes_calc["DIST_KM"] = cafes_calc.apply(
-            lambda r: geodesic(coords, (r["LAT"], r["LONG"])).km,
-            axis=1
+        recomendados = cafes_en_radio(cafes, coords, 0.75)
+
+        if recomendados.empty:
+            st.warning("No encontramos cafés en 750 m para recomendar ☹️")
+            st.stop()
+
+        recomendado = recomendados.sample(n=1, random_state=random.randint(0, 10_000_000)).iloc[0]
+        distancia_txt = f"{int(recomendado['DIST_KM'] * 1000)} m" if recomendado['DIST_KM'] < 1 else f"{recomendado['DIST_KM']:.2f} km"
+        link_maps = (
+            "https://www.google.com/maps/search/?api=1"
+            f"&query={recomendado['LAT']},{recomendado['LONG']}"
         )
 
-        resultado = cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
+        st.success("☕ Recomendación del momento")
+        st.markdown(f"""
+        **Café:** {recomendado['CAFE']}  
+        **Ubicación:** {recomendado['UBICACION']}  
+        **Tostador:** {recomendado['TOSTADOR']}  
+        **Distancia:** {distancia_txt}  
+        [📍 Ver en Google Maps]({link_maps})
+        """)
+
+    if buscar_cafes:
+        coords = geocodificar(direccion, ciudad)
+
+        if not coords:
+            st.error("No se pudo encontrar la dirección 😕")
+            st.stop()
+
+        resultado = cafes_en_radio(cafes, coords, radio_km)
 
         if filtro_tostador != "Todos":
             resultado = resultado[
@@ -313,4 +352,3 @@ with tabs[1]:
                         """,
                         unsafe_allow_html=True
                     )
-
