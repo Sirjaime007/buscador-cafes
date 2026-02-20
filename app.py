@@ -31,13 +31,11 @@ GID_CAFES = {
 
 GID_TOSTADORES = "1590442133"
 
-
 def sheet_url(gid: str) -> str:
     return (
         f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}"
         f"/gviz/tq?tqx=out:csv&gid={gid}"
     )
-
 
 # =========================
 # LOAD DATA
@@ -93,14 +91,12 @@ def cargar_todos_los_cafes():
         return pd.concat(dfs, ignore_index=True)
     return pd.DataFrame()
 
-
 # =========================
-# GEOCODER
+# GEOCODER & LOGIC
 # =========================
 @st.cache_resource
 def get_geocoder():
     return ArcGIS(timeout=10)
-
 
 def geocodificar(direccion, ciudad):
     if not direccion or not direccion.strip():
@@ -116,7 +112,6 @@ def geocodificar(direccion, ciudad):
         return loc.latitude, loc.longitude
     return None
 
-
 def cafes_en_radio(cafes_df, coords, radio_km):
     cafes_calc = cafes_df.copy()
     cafes_calc["DIST_KM"] = cafes_calc.apply(
@@ -124,7 +119,6 @@ def cafes_en_radio(cafes_df, coords, radio_km):
         axis=1
     )
     return cafes_calc[cafes_calc["DIST_KM"] <= radio_km]
-
 
 def normalizar_texto(valor, fallback="Sin dato"):
     if pd.isna(valor):
@@ -134,26 +128,22 @@ def normalizar_texto(valor, fallback="Sin dato"):
         return fallback
     return texto
 
-
 def rerun_app():
     if hasattr(st, "rerun"):
         st.rerun()
     else:
         st.experimental_rerun()
 
-
 def distancia_en_cuadras(dist_km):
     metros = dist_km * 1000
     cuadras = int((metros + 99) // 100)
     return max(cuadras, 1)
-
 
 def texto_normalizado(valor):
     texto = normalizar_texto(valor, fallback="")
     texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
     texto = re.sub(r"[^a-zA-Z0-9\s]", " ", texto.lower())
     return re.sub(r"\s+", " ", texto).strip()
-
 
 def geocodificar_desde_cafes(direccion, cafes_df):
     direccion_norm = texto_normalizado(direccion)
@@ -180,7 +170,6 @@ def geocodificar_desde_cafes(direccion, cafes_df):
 
     return float(mejor["LAT"]), float(mejor["LONG"])
 
-
 def resolver_coordenadas(direccion, ciudad, cafes_df):
     coords = geocodificar(direccion, ciudad)
     if coords:
@@ -192,26 +181,42 @@ def resolver_coordenadas(direccion, ciudad, cafes_df):
 
     return None, None
 
-
 # =========================
-# UI – SELECT CITY
+# UI – SELECT CITY & TABS
 # =========================
-ciudad = st.selectbox(
-    "🏙️ Ciudad",
-    list(GID_CAFES.keys())
-)
+# Guardamos la ciudad en memoria para sincronizar las pestañas
+ciudades_lista = list(GID_CAFES.keys())
+if "ciudad_elegida" not in st.session_state:
+    st.session_state["ciudad_elegida"] = ciudades_lista[0]
 
-cafes = cargar_cafes(GID_CAFES[ciudad])
+def actualizar_ciudad_tab1():
+    st.session_state["ciudad_elegida"] = st.session_state["selector_tab1"]
+
+def actualizar_ciudad_tab2():
+    st.session_state["ciudad_elegida"] = st.session_state["selector_tab2"]
+
+# Cargamos los tostadores generales una sola vez
 tostadores = cargar_tostadores()
 
-# Sumamos la tercera pestaña al menú
+# Definimos las pestañas
 tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar por Nombre"])
 
 # ======================================================
 # TAB 1 – CAFÉS
 # ======================================================
-
 with tabs[0]:
+    # Selector de ciudad sincronizado
+    ciudad = st.selectbox(
+        "🏙️ Ciudad",
+        ciudades_lista,
+        index=ciudades_lista.index(st.session_state["ciudad_elegida"]),
+        key="selector_tab1",
+        on_change=actualizar_ciudad_tab1
+    )
+    
+    # Cargamos los cafés basados en la ciudad seleccionada
+    cafes = cargar_cafes(GID_CAFES[ciudad])
+
     direccion = st.text_input(
         "📍 Dirección",
         placeholder="Ej: Av. Colón 1500"
@@ -234,7 +239,7 @@ with tabs[0]:
     with col_recomendado:
         recomendar_cafe = st.button("🎯 Café recomendado", use_container_width=True)
 
-    # Limpiamos la memoria si el usuario hace una búsqueda normal
+    # Limpiamos la memoria de recomendación si el usuario hace una búsqueda normal
     if buscar_cafes:
         st.session_state["recomendacion"] = None
 
@@ -469,6 +474,15 @@ with tabs[0]:
 # TAB 2 – TOSTADORES
 # ======================================================
 with tabs[1]:
+    # Selector de ciudad sincronizado para Tostadores
+    ciudad_tost = st.selectbox(
+        "🏙️ Ciudad",
+        ciudades_lista,
+        index=ciudades_lista.index(st.session_state["ciudad_elegida"]),
+        key="selector_tab2",
+        on_change=actualizar_ciudad_tab2
+    )
+
     st.subheader("🔥 Tostadores")
 
     st.markdown(
@@ -523,7 +537,7 @@ with tabs[1]:
 
     tostadores_ciudad = tostadores[
         tostadores["CIUDAD"]
-        .str.contains(ciudad, case=False, na=False)
+        .str.contains(ciudad_tost, case=False, na=False)
     ]
 
     if tostadores_ciudad.empty:
@@ -556,7 +570,6 @@ with tabs[1]:
 # ======================================================
 with tabs[2]:
     st.subheader("🔍 Encontrá tu café favorito")
-    st.markdown("Buscá en nuestra base de datos general (todas las ciudades).")
     
     # Cargamos la base de datos completa
     todos_los_cafes = cargar_todos_los_cafes()
@@ -613,18 +626,17 @@ with tabs[2]:
             centro_lat = map_df["lat"].mean()
             centro_lon = map_df["lon"].mean()
             
-            # Creamos la capa con los puntos del café (Le puse un color rojo/naranja distinto)
+            # Creamos la capa con los puntos del café
             layer_busqueda = pdk.Layer(
                 "ScatterplotLayer",
                 data=map_df,
                 get_position=["lon", "lat"],
-                get_radius=150, # Tamaño del punto
-                get_fill_color=[255, 90, 60, 220], # Color RGB + Opacidad
+                get_radius=150, 
+                get_fill_color=[255, 90, 60, 220],
                 pickable=True
             )
             
             # Configuramos la vista inicial del mapa
-            # Si hay más de 1 sucursal, alejamos un poco el zoom (11), si es una sola lo acercamos (14)
             zoom_inicial = 14 if len(resultados) == 1 else 11
             
             view_state = pdk.ViewState(
