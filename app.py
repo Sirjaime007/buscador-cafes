@@ -44,7 +44,7 @@ def sheet_url(gid: str) -> str:
 # =========================
 @st.cache_data(ttl=600)
 def cargar_cafes(gid):
-    try:
+try:
         df = pd.read_csv(sheet_url(gid), dtype=str)
     except Exception:
         df = pd.read_csv("Cafes.csv", dtype=str)
