@@ -44,21 +44,21 @@ def sheet_url(gid: str) -> str:
 # =========================
 @st.cache_data(ttl=600)
 def cargar_cafes(gid):
-    try:
-        df = pd.read_csv(sheet_url(gid), dtype=str)
-    except Exception:
-        df = pd.read_csv("Cafes.csv", dtype=str)
+    try:
+        df = pd.read_csv(sheet_url(gid), dtype=str)
+    except Exception:
+        df = pd.read_csv("Cafes.csv", dtype=str)
 
-    df["LAT"] = pd.to_numeric(
-        df["LAT"].str.replace(",", ".", regex=False),
-        errors="coerce"
-    )
-    df["LONG"] = pd.to_numeric(
-        df["LONG"].str.replace(",", ".", regex=False),
-        errors="coerce"
-    )
+    df["LAT"] = pd.to_numeric(
+        df["LAT"].str.replace(",", ".", regex=False),
+        errors="coerce"
+    )
+    df["LONG"] = pd.to_numeric(
+        df["LONG"].str.replace(",", ".", regex=False),
+        errors="coerce"
+    )
 
-    return df.dropna(subset=["LAT", "LONG"])
+    return df.dropna(subset=["LAT", "LONG"])
 
 
 @st.cache_data(ttl=600)
