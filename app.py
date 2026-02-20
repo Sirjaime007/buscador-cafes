@@ -192,6 +192,7 @@ tabs = st.tabs(["☕ Cafés", "🔥 Tostadores"])
 # ======================================================
 # TAB 1 – CAFÉS
 # ======================================================
+
 with tabs[0]:
     direccion = st.text_input(
         "📍 Dirección",
@@ -214,6 +215,12 @@ with tabs[0]:
         buscar_cafes = st.button("🔍 Buscar cafés", use_container_width=True)
     with col_recomendado:
         recomendar_cafe = st.button("🎯 Café recomendado", use_container_width=True)
+
+    # --- INICIO DEL CÓDIGO NUEVO ---
+    # Limpiamos la memoria si el usuario hace una búsqueda normal
+    if buscar_cafes:
+        st.session_state["recomendacion"] = None
+    # --- FIN DEL CÓDIGO NUEVO ---
 
     if "recomendacion" not in st.session_state:
         st.session_state["recomendacion"] = None
