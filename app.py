@@ -76,6 +76,23 @@ def cargar_tostadores():
             columns=["TOSTADOR", "VARIEDADES", "DESCRIPCION", "INSTAGRAM", "CIUDAD"]
         )
 
+@st.cache_data(ttl=600)
+def cargar_todos_los_cafes():
+    dfs = []
+    # Recorremos el diccionario de GID_CAFES para traer todas las ciudades
+    for ciudad_nombre, gid in GID_CAFES.items():
+        try:
+            df_ciudad = cargar_cafes(gid).copy()
+            # Le agregamos una columna con el nombre de la ciudad para saber de dónde es
+            df_ciudad["CIUDAD"] = ciudad_nombre 
+            dfs.append(df_ciudad)
+        except Exception:
+            continue
+            
+    if dfs:
+        return pd.concat(dfs, ignore_index=True)
+    return pd.DataFrame()
+
 
 # =========================
 # GEOCODER
@@ -187,7 +204,8 @@ ciudad = st.selectbox(
 cafes = cargar_cafes(GID_CAFES[ciudad])
 tostadores = cargar_tostadores()
 
-tabs = st.tabs(["☕ Cafés", "🔥 Tostadores"])
+# Sumamos la tercera pestaña al menú
+tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar por Nombre"])
 
 # ======================================================
 # TAB 1 – CAFÉS
@@ -216,11 +234,9 @@ with tabs[0]:
     with col_recomendado:
         recomendar_cafe = st.button("🎯 Café recomendado", use_container_width=True)
 
-    # --- INICIO DEL CÓDIGO NUEVO ---
     # Limpiamos la memoria si el usuario hace una búsqueda normal
     if buscar_cafes:
         st.session_state["recomendacion"] = None
-    # --- FIN DEL CÓDIGO NUEVO ---
 
     if "recomendacion" not in st.session_state:
         st.session_state["recomendacion"] = None
@@ -534,3 +550,100 @@ with tabs[1]:
                         """,
                         unsafe_allow_html=True
                     )
+
+# ======================================================
+# TAB 3 – BUSCADOR GLOBAL POR NOMBRE
+# ======================================================
+with tabs[2]:
+    st.subheader("🔍 Encontrá tu café favorito")
+    st.markdown("Buscá en nuestra base de datos general (todas las ciudades).")
+    
+    # Cargamos la base de datos completa
+    todos_los_cafes = cargar_todos_los_cafes()
+    
+    if not todos_los_cafes.empty:
+        # Armamos una lista limpia y ordenada sin repetidos
+        nombres_cafes = sorted(todos_los_cafes["CAFE"].dropna().unique().tolist())
+        
+        # El selectbox actúa como un autocompletar natural
+        cafe_buscado = st.selectbox(
+            "Escribí o seleccioná el nombre del café:",
+            options=[""] + nombres_cafes,
+            index=0
+        )
+        
+        # Si el usuario seleccionó un café, mostramos los resultados
+        if cafe_buscado != "":
+            # Filtramos todos los locales que tengan ese nombre
+            resultados = todos_los_cafes[todos_los_cafes["CAFE"] == cafe_buscado].copy()
+            
+            st.success(f"Encontramos {len(resultados)} sucursal(es) para **{cafe_buscado}**:")
+            
+            # Generamos el link de Google Maps
+            resultados["MAPS"] = resultados.apply(
+                lambda r: (
+                    "https://www.google.com/maps/search/?api=1"
+                    f"&query={r['LAT']},{r['LONG']}"
+                ),
+                axis=1
+            )
+            
+            # Mostramos la tabla limpia
+            st.dataframe(
+                resultados[["CAFE", "UBICACION", "CIUDAD", "TOSTADOR", "MAPS"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "MAPS": st.column_config.LinkColumn(
+                        "Google Maps",
+                        display_text="📍 Ver en el mapa"
+                    )
+                }
+            )
+            
+            # =========================
+            # MAPA DE RESULTADOS
+            # =========================
+            st.markdown("### 🗺️ Ubicación")
+            
+            # Preparamos las columnas para pydeck
+            map_df = resultados.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
+            
+            # Calculamos el centro exacto promediando las coordenadas
+            centro_lat = map_df["lat"].mean()
+            centro_lon = map_df["lon"].mean()
+            
+            # Creamos la capa con los puntos del café (Le puse un color rojo/naranja distinto)
+            layer_busqueda = pdk.Layer(
+                "ScatterplotLayer",
+                data=map_df,
+                get_position=["lon", "lat"],
+                get_radius=150, # Tamaño del punto
+                get_fill_color=[255, 90, 60, 220], # Color RGB + Opacidad
+                pickable=True
+            )
+            
+            # Configuramos la vista inicial del mapa
+            # Si hay más de 1 sucursal, alejamos un poco el zoom (11), si es una sola lo acercamos (14)
+            zoom_inicial = 14 if len(resultados) == 1 else 11
+            
+            view_state = pdk.ViewState(
+                latitude=centro_lat,
+                longitude=centro_lon,
+                zoom=zoom_inicial
+            )
+            
+            # Armamos el mapa
+            deck_busqueda = pdk.Deck(
+                layers=[layer_busqueda],
+                initial_view_state=view_state,
+                tooltip={
+                    "text": "{CAFE}\n{UBICACION}\n{CIUDAD}"
+                }
+            )
+            
+            # Lo mostramos en pantalla
+            st.pydeck_chart(deck_busqueda, use_container_width=True)
+            
+    else:
+        st.info("Cargando la base de datos global...")
