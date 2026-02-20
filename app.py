@@ -44,22 +44,28 @@ def sheet_url(gid: str) -> str:
 # =========================
 @st.cache_data(ttl=600)
 def cargar_cafes(gid):
-try:
-df = pd.read_csv(sheet_url(gid), dtype=str)
-except Exception:
- df = pd.read_csv("Cafes.csv", dtype=str)
+    try:
+        df = pd.read_csv(sheet_url(gid), dtype=str)
+    except Exception:
+        df = pd.read_csv("Cafes.csv", dtype=str)
 
- df["LAT"] = pd.to_numeric(
- df["LAT"].str.replace(",", ".", regex=False),
-  errors="coerce"
-    )
-    df["LONG"] = pd.to_numeric(
-        df["LONG"].str.replace(",", ".", regex=False),
-        errors="coerce"
-    )
+    df["LAT"] = pd.to_numeric(
+        df["LAT"].str.replace(",", ".", regex=False),
+        errors="coerce"
+    )
+    df["LONG"] = pd.to_numeric(
+        df["LONG"].str.replace(",", ".", regex=False),
+        errors="coerce"
+    )
 
-    return df.dropna(subset=["LAT", "LONG"])
+    # Eliminar nulos
+    df = df.dropna(subset=["LAT", "LONG"])
+    
+    # Filtro de seguridad para coordenadas imposibles
+    df = df[(df["LAT"] >= -90) & (df["LAT"] <= 90)]
+    df = df[(df["LONG"] >= -180) & (df["LONG"] <= 180)]
 
+    return df
 
 @st.cache_data(ttl=600)
 def cargar_tostadores():
