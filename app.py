@@ -23,10 +23,13 @@ st.title("☕ Buscador de Cafés")
 # =========================
 SPREADSHEET_ID = "10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
 
+# Agregamos Córdoba y Rosario a la lista
 GID_CAFES = {
     "Mar del Plata": "0",
     "Buenos Aires": "1296176686",
     "La Plata": "208452991",
+    "Córdoba": "1250014567",
+    "Rosario": "1691979590",
 }
 
 GID_TOSTADORES = "1590442133"
@@ -104,7 +107,7 @@ def geocodificar(direccion, ciudad):
 
     geo = get_geocoder()
     try:
-        loc = geo.geocode(f"{direccion}, {ciudad}, Buenos Aires, Argentina")
+        loc = geo.geocode(f"{direccion}, {ciudad}, Argentina")
     except Exception:
         return None
 
@@ -180,6 +183,28 @@ def resolver_coordenadas(direccion, ciudad, cafes_df):
         return coords_local, "local"
 
     return None, None
+
+# =========================
+# UI – CONTADOR GLOBAL
+# =========================
+# Cargamos la base global una sola vez para usar en el contador y en la pestaña 3
+todos_los_cafes = cargar_todos_los_cafes()
+total_cafeterias = len(todos_los_cafes) if not todos_los_cafes.empty else 0
+
+# Mostramos el cartel destacado con el contador total
+st.markdown(
+    f"""
+    <div style="background: linear-gradient(90deg, #f0e1cf 0%, #fdf8f2 100%); 
+                padding: 12px; border-radius: 10px; margin-bottom: 25px; 
+                border-left: 5px solid #5f3512; display: flex; align-items: center;">
+        <h4 style="margin: 0; color: #5f3512; font-size: 1.1rem;">
+            📍 Total cafeterías (suma de todas las ciudades): <strong>{total_cafeterias}</strong>
+        </h4>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
 
 # =========================
 # UI – SELECT CITY & TABS
@@ -571,9 +596,7 @@ with tabs[1]:
 with tabs[2]:
     st.subheader("🔍 Encontrá tu café favorito")
     
-    # Cargamos la base de datos completa
-    todos_los_cafes = cargar_todos_los_cafes()
-    
+    # Usamos la base de datos que ya cargamos arriba para el contador
     if not todos_los_cafes.empty:
         # Armamos una lista limpia y ordenada sin repetidos
         nombres_cafes = sorted(todos_los_cafes["CAFE"].dropna().unique().tolist())
