@@ -198,7 +198,7 @@ st.markdown(
                 padding: 12px; border-radius: 10px; margin-bottom: 25px; 
                 border-left: 5px solid #5f3512; display: flex; align-items: center;">
         <h4 style="margin: 0; color: #5f3512; font-size: 1.1rem;">
-            📍 Total cafeterías (suma de todas las ciudades): <strong>{total_cafeterias}</strong>
+            📍 Total cafeterías : <strong>{total_cafeterias}</strong>
         </h4>
     </div>
     """,
