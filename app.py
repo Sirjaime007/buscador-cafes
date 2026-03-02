@@ -6,7 +6,7 @@ import unicodedata
 from geopy.geocoders import ArcGIS
 from geopy.distance import geodesic
 import pydeck as pdk
-import requests  # Importante para enviar el formulario invisible
+import requests
 
 # =========================
 # CONFIG APP
@@ -45,7 +45,6 @@ with st.sidebar:
                 # --- MAGIA DEL FORMULARIO INVISIBLE ---
                 url_formulario = "https://docs.google.com/forms/d/e/1FAIpQLSeuxnoY87VlZc01atG4oqqoYq-F7L_b5tdQcq_RM2OrdfT1sQ/formResponse"
                 
-                # Empaquetamos los datos con los códigos de Google
                 datos_a_enviar = {
                     "entry.2123411439": tipo_aporte,
                     "entry.2080751766": sug_nombre,
@@ -54,17 +53,15 @@ with st.sidebar:
                     "entry.143951500": sug_comentario
                 }
                 
-try:
-                    # Enviamos el paquete a Google de forma oculta
+                try:
                     respuesta = requests.post(url_formulario, data=datos_a_enviar)
                     
                     if respuesta.status_code == 200:
                         st.success("¡Gracias por tu aporte! Lo revisaremos y actualizaremos el mapa pronto. ☕")
                     else:
-                        st.error(f"Google rechazó el envío (Código {respuesta.status_code}). Revisá la configuración del formulario.")
+                        st.error(f"Google rechazó el envío (Código {respuesta.status_code}).")
                 except Exception as e:
                     st.error(f"Error técnico de conexión: {e}")
-
 
 # =========================
 # GOOGLE SHEETS CONFIG
@@ -106,7 +103,6 @@ def cargar_cafes(gid):
         errors="coerce"
     )
 
-    # Eliminar nulos y coordenadas imposibles
     df = df.dropna(subset=["LAT", "LONG"])
     df = df[(df["LAT"] >= -90) & (df["LAT"] <= 90)]
     df = df[(df["LONG"] >= -180) & (df["LONG"] <= 180)]
@@ -147,13 +143,11 @@ def get_geocoder():
 def geocodificar(direccion, ciudad):
     if not direccion or not direccion.strip():
         return None
-
     geo = get_geocoder()
     try:
         loc = geo.geocode(f"{direccion}, {ciudad}, Argentina")
     except Exception:
         return None
-
     if loc:
         return loc.latitude, loc.longitude
     return None
@@ -425,9 +419,6 @@ with tabs[0]:
             }
         )
 
-        # =========================
-        # MAPA – HEATMAP LIGHT
-        # =========================
         map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
         max_dist = map_df["DIST_KM"].max()
 
