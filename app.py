@@ -20,7 +20,7 @@ st.set_page_config(
 st.title("☕ Buscador de Cafés")
 
 # =========================
-# SIDEBAR - SUGERENCIAS DE LA COMUNIDAD
+# SIDEBAR - SUGERENCIAS DE LA COMUNIDAD (TELEGRAM)
 # =========================
 with st.sidebar:
     st.header("💡 Ayudanos a mejorar")
@@ -42,34 +42,32 @@ with st.sidebar:
             if sug_nombre == "" or sug_ubicacion == "":
                 st.error("Por favor, completá el nombre y la dirección.")
             else:
-                # --- MAGIA DEL FORMULARIO INVISIBLE ---
-                url_formulario = "https://docs.google.com/forms/d/e/1FAIpQLSeuxnoY87VlZc01atG4oqqoYq-F7L_b5tdQcq_RM2OrdfT1sQ/formResponse"
+                # --- CONFIGURACIÓN DE TELEGRAM ---
+                TELEGRAM_TOKEN = "8733046942:AAGYePWGw4XRllrGtKD0GsG5Gpt1gQ9db2Q"
+                CHAT_ID = "8437988676"
                 
-                # Empaquetamos los datos
-                datos_a_enviar = {
-                    "entry.2123411439": tipo_aporte,
-                    "entry.2080751766": sug_nombre,
-                    "entry.1509178125": sug_ubicacion,
-                    "entry.1244504490": sug_ciudad,
-                    "entry.143951500": sug_comentario
-                }
+                # Armamos el mensaje que te va a llegar al celular
+                mensaje = (
+                    f"🚨 NUEVO REPORTE EN LA APP 🚨\n\n"
+                    f"📌 Tipo: {tipo_aporte}\n"
+                    f"☕ Café: {sug_nombre}\n"
+                    f"📍 Dirección: {sug_ubicacion}\n"
+                    f"🏙️ Ciudad: {sug_ciudad}\n"
+                    f"💬 Comentario: {sug_comentario if sug_comentario else 'Sin comentarios'}"
+                )
                 
-                # Le ponemos un disfraz a Python para que Google no lo bloquee
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
+                url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
                 
                 try:
-                    # Enviamos el paquete a Google con el disfraz puesto
-                    respuesta = requests.post(url_formulario, data=datos_a_enviar, headers=headers)
+                    # Enviamos el mensaje a Telegram
+                    respuesta = requests.post(url_telegram, data={"chat_id": CHAT_ID, "text": mensaje})
                     
                     if respuesta.status_code == 200:
-                        st.success("¡Gracias por tu aporte! Lo revisaremos y actualizaremos el mapa pronto. ☕")
+                        st.success("¡Gracias por tu aporte! Lo revisaremos pronto. ☕")
                     else:
-                        st.error(f"Google rechazó el envío (Código {respuesta.status_code}).")
+                        st.error("Hubo un problema enviando el mensaje.")
                 except Exception as e:
-                    st.error(f"Error técnico de conexión: {e}")
-
+                    st.error("Error técnico de conexión.")
 
 # =========================
 # GOOGLE SHEETS CONFIG
