@@ -42,9 +42,9 @@ with st.sidebar:
             if sug_nombre == "" or sug_ubicacion == "":
                 st.error("Por favor, completá el nombre y la dirección.")
             else:
-                # --- CONFIGURACIÓN DE TELEGRAM ---
-                TELEGRAM_TOKEN = "8733046942:AAGYePWGw4XRllrGtKD0GsG5Gpt1gQ9db2Q"
-                CHAT_ID = "8437988676"
+             # --- CONFIGURACIÓN DE TELEGRAM ---
+                TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
+                CHAT_ID = st.secrets["CHAT_ID"]
                 
                 # Armamos el mensaje que te va a llegar al celular
                 mensaje = (
