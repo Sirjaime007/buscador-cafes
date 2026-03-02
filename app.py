@@ -6,6 +6,7 @@ import unicodedata
 from geopy.geocoders import ArcGIS
 from geopy.distance import geodesic
 import pydeck as pdk
+import requests  # Importante para enviar el formulario invisible
 
 # =========================
 # CONFIG APP
@@ -41,15 +42,31 @@ with st.sidebar:
             if sug_nombre == "" or sug_ubicacion == "":
                 st.error("Por favor, completá el nombre y la dirección.")
             else:
-                # Acá es donde en el futuro enviaremos el mensaje a tu celular o base de datos
-                st.success("¡Gracias por tu aporte! Lo revisaremos y actualizaremos el mapa pronto. ☕")
+                # --- MAGIA DEL FORMULARIO INVISIBLE ---
+                url_formulario = "https://docs.google.com/forms/d/e/1FAIpQLSeuxnoY87VlZc01atG4oqqoYq-F7L_b5tdQcq_RM2OrdfT1sQ/formResponse"
+                
+                # Empaquetamos los datos con los códigos de Google
+                datos_a_enviar = {
+                    "entry.2123411439": tipo_aporte,
+                    "entry.2080751766": sug_nombre,
+                    "entry.1509178125": sug_ubicacion,
+                    "entry.1244504490": sug_ciudad,
+                    "entry.143951500": sug_comentario
+                }
+                
+                try:
+                    # Enviamos el paquete a Google de forma oculta
+                    requests.post(url_formulario, data=datos_a_enviar)
+                    st.success("¡Gracias por tu aporte! Lo revisaremos y actualizaremos el mapa pronto. ☕")
+                except Exception:
+                    st.error("Hubo un error de conexión, intentá más tarde.")
+
 
 # =========================
 # GOOGLE SHEETS CONFIG
 # =========================
 SPREADSHEET_ID = "10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
 
-# Agregamos Córdoba y Rosario a la lista
 GID_CAFES = {
     "Mar del Plata": "0",
     "Buenos Aires": "1296176686",
@@ -85,10 +102,8 @@ def cargar_cafes(gid):
         errors="coerce"
     )
 
-    # Eliminar nulos
+    # Eliminar nulos y coordenadas imposibles
     df = df.dropna(subset=["LAT", "LONG"])
-    
-    # Filtro de seguridad para coordenadas imposibles
     df = df[(df["LAT"] >= -90) & (df["LAT"] <= 90)]
     df = df[(df["LONG"] >= -180) & (df["LONG"] <= 180)]
 
@@ -106,11 +121,9 @@ def cargar_tostadores():
 @st.cache_data(ttl=600)
 def cargar_todos_los_cafes():
     dfs = []
-    # Recorremos el diccionario de GID_CAFES para traer todas las ciudades
     for ciudad_nombre, gid in GID_CAFES.items():
         try:
             df_ciudad = cargar_cafes(gid).copy()
-            # Le agregamos una columna con el nombre de la ciudad para saber de dónde es
             df_ciudad["CIUDAD"] = ciudad_nombre 
             dfs.append(df_ciudad)
         except Exception:
@@ -213,11 +226,9 @@ def resolver_coordenadas(direccion, ciudad, cafes_df):
 # =========================
 # UI – CONTADOR GLOBAL
 # =========================
-# Cargamos la base global una sola vez para usar en el contador y en la pestaña 3
 todos_los_cafes = cargar_todos_los_cafes()
 total_cafeterias = len(todos_los_cafes) if not todos_los_cafes.empty else 0
 
-# Mostramos el cartel destacado con el contador total
 st.markdown(
     f"""
     <div style="background: linear-gradient(90deg, #f0e1cf 0%, #fdf8f2 100%); 
@@ -234,7 +245,6 @@ st.markdown(
 # =========================
 # UI – SELECT CITY & TABS
 # =========================
-# Guardamos la ciudad en memoria para sincronizar las pestañas
 ciudades_lista = list(GID_CAFES.keys())
 if "ciudad_elegida" not in st.session_state:
     st.session_state["ciudad_elegida"] = ciudades_lista[0]
@@ -245,17 +255,13 @@ def actualizar_ciudad_tab1():
 def actualizar_ciudad_tab2():
     st.session_state["ciudad_elegida"] = st.session_state["selector_tab2"]
 
-# Cargamos los tostadores generales una sola vez
 tostadores = cargar_tostadores()
-
-# Definimos las pestañas
 tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar por Nombre"])
 
 # ======================================================
 # TAB 1 – CAFÉS
 # ======================================================
 with tabs[0]:
-    # Selector de ciudad sincronizado
     ciudad = st.selectbox(
         "🏙️ Ciudad",
         ciudades_lista,
@@ -264,24 +270,13 @@ with tabs[0]:
         on_change=actualizar_ciudad_tab1
     )
     
-    # Cargamos los cafés basados en la ciudad seleccionada
     cafes = cargar_cafes(GID_CAFES[ciudad])
 
-    direccion = st.text_input(
-        "📍 Dirección",
-        placeholder="Ej: Av. Colón 1500"
-    )
-
-    radio_km = st.slider(
-        "📏 Radio de búsqueda (km)",
-        0.5, 5.0, 2.0, 0.5
-    )
+    direccion = st.text_input("📍 Dirección", placeholder="Ej: Av. Colón 1500")
+    radio_km = st.slider("📏 Radio de búsqueda (km)", 0.5, 5.0, 2.0, 0.5)
 
     tostadores_disp = ["Todos"] + sorted(cafes["TOSTADOR"].dropna().unique())
-    filtro_tostador = st.selectbox(
-        "🏷️ Filtrar por tostador",
-        tostadores_disp
-    )
+    filtro_tostador = st.selectbox("🏷️ Filtrar por tostador", tostadores_disp)
 
     col_buscar, col_recomendado = st.columns(2)
     with col_buscar:
@@ -289,7 +284,6 @@ with tabs[0]:
     with col_recomendado:
         recomendar_cafe = st.button("🎯 Café recomendado", use_container_width=True)
 
-    # Limpiamos la memoria de recomendación si el usuario hace una búsqueda normal
     if buscar_cafes:
         st.session_state["recomendacion"] = None
 
@@ -315,18 +309,12 @@ with tabs[0]:
             st.session_state["recomendacion"] = None
             st.stop()
 
-        recomendado = recomendados.sample(
-            n=1,
-            random_state=random.randint(0, 10_000_000)
-        ).iloc[0]
+        recomendado = recomendados.sample(n=1, random_state=random.randint(0, 10_000_000)).iloc[0]
 
         st.session_state["recomendacion"] = {
             "CAFE": normalizar_texto(recomendado.get("CAFE")),
             "UBICACION": normalizar_texto(recomendado.get("UBICACION")),
-            "TOSTADOR": normalizar_texto(
-                recomendado.get("TOSTADOR"),
-                fallback="Sin tostador cargado"
-            ),
+            "TOSTADOR": normalizar_texto(recomendado.get("TOSTADOR"), fallback="Sin tostador cargado"),
             "DIST_KM": float(recomendado["DIST_KM"]),
             "LAT": recomendado["LAT"],
             "LONG": recomendado["LONG"],
@@ -334,35 +322,21 @@ with tabs[0]:
         }
         st.session_state["recomendacion_ciudad"] = ciudad
 
-    if (
-        st.session_state["recomendacion"] is not None
-        and st.session_state["recomendacion_ciudad"] == ciudad
-    ):
+    if st.session_state["recomendacion"] is not None and st.session_state["recomendacion_ciudad"] == ciudad:
         recomendacion = st.session_state["recomendacion"]
         distancia_txt = f"{distancia_en_cuadras(recomendacion['DIST_KM'])} cuadras"
-        link_maps = (
-            "https://www.google.com/maps/search/?api=1"
-            f"&query={recomendacion['LAT']},{recomendacion['LONG']}"
-        )
+        link_maps = f"https://www.google.com/maps/search/?api=1&query={recomendacion['LAT']},{recomendacion['LONG']}"
 
         st.markdown(
             """
             <style>
                 .card-recomendado {
                     background: linear-gradient(180deg, #f7fff9 0%, #eefaf2 100%);
-                    border: 1px solid #cfe8d7;
-                    border-radius: 14px;
-                    padding: 1rem;
-                    margin-top: 0.75rem;
+                    border: 1px solid #cfe8d7; border-radius: 14px;
+                    padding: 1rem; margin-top: 0.75rem;
                 }
-                .card-recomendado h4 {
-                    margin: 0 0 0.5rem 0;
-                    color: #1f6f43;
-                }
-                .card-recomendado p {
-                    margin: 0.2rem 0;
-                    color: #1d2a22;
-                }
+                .card-recomendado h4 { margin: 0 0 0.5rem 0; color: #1f6f43; }
+                .card-recomendado p { margin: 0.2rem 0; color: #1d2a22; }
             </style>
             """,
             unsafe_allow_html=True
@@ -397,17 +371,11 @@ with tabs[0]:
                     st.warning("No encontramos cafés en 750 m para recomendar ☹️")
                     st.stop()
 
-                recomendado = recomendados.sample(
-                    n=1,
-                    random_state=random.randint(0, 10_000_000)
-                ).iloc[0]
+                recomendado = recomendados.sample(n=1, random_state=random.randint(0, 10_000_000)).iloc[0]
                 st.session_state["recomendacion"] = {
                     "CAFE": normalizar_texto(recomendado.get("CAFE")),
                     "UBICACION": normalizar_texto(recomendado.get("UBICACION")),
-                    "TOSTADOR": normalizar_texto(
-                        recomendado.get("TOSTADOR"),
-                        fallback="Sin tostador cargado"
-                    ),
+                    "TOSTADOR": normalizar_texto(recomendado.get("TOSTADOR"), fallback="Sin tostador cargado"),
                     "DIST_KM": float(recomendado["DIST_KM"]),
                     "LAT": recomendado["LAT"],
                     "LONG": recomendado["LONG"],
@@ -425,9 +393,7 @@ with tabs[0]:
         resultado = cafes_en_radio(cafes, coords, radio_km)
 
         if filtro_tostador != "Todos":
-            resultado = resultado[
-                resultado["TOSTADOR"] == filtro_tostador
-            ]
+            resultado = resultado[resultado["TOSTADOR"] == filtro_tostador]
 
         resultado = resultado.sort_values("DIST_KM")
 
@@ -435,102 +401,65 @@ with tabs[0]:
             st.warning("No se encontraron cafés ☹️")
             st.stop()
 
-        # Texto distancia
         resultado["DISTANCIA"] = resultado["DIST_KM"].apply(
             lambda km: f"{int(km*1000)} m" if km < 1 else f"{km:.2f} km"
         )
 
         resultado["MAPS"] = resultado.apply(
-            lambda r: (
-                "https://www.google.com/maps/search/?api=1"
-                f"&query={r['LAT']},{r['LONG']}"
-            ),
+            lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}",
             axis=1
         )
 
         st.subheader(f"☕ Cafés encontrados ({len(resultado)})")
 
         st.dataframe(
-            resultado[
-                ["CAFE", "UBICACION", "TOSTADOR", "DISTANCIA", "MAPS"]
-            ],
+            resultado[["CAFE", "UBICACION", "TOSTADOR", "DISTANCIA", "MAPS"]],
             use_container_width=True,
             hide_index=True,
             column_config={
-                "MAPS": st.column_config.LinkColumn(
-                    "Google Maps",
-                    display_text="📍 Abrir"
-                )
+                "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir")
             }
         )
 
         # =========================
         # MAPA – HEATMAP LIGHT
         # =========================
-        map_df = resultado.rename(
-            columns={"LAT": "lat", "LONG": "lon"}
-        ).copy()
-
+        map_df = resultado.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
         max_dist = map_df["DIST_KM"].max()
 
         def color_por_distancia(d):
             ratio = d / max_dist if max_dist > 0 else 0
-            r = int(255 * ratio)
-            g = int(255 * (1 - ratio))
-            return [r, g, 80, 180]
+            return [int(255 * ratio), int(255 * (1 - ratio)), 80, 180]
 
         map_df["color"] = map_df["DIST_KM"].apply(color_por_distancia)
-
         idx_mas_cercano = map_df.index[0]
         map_df.at[idx_mas_cercano, "color"] = [0, 220, 0, 230]
 
         layer_cafes = pdk.Layer(
-            "ScatterplotLayer",
-            data=map_df,
-            get_position=["lon", "lat"],
-            get_radius=90,
-            get_fill_color="color",
-            pickable=True
+            "ScatterplotLayer", data=map_df, get_position=["lon", "lat"],
+            get_radius=90, get_fill_color="color", pickable=True
         )
 
         layer_user = pdk.Layer(
-            "ScatterplotLayer",
-            data=pd.DataFrame([{
-                "lat": coords[0],
-                "lon": coords[1]
-            }]),
-            get_position=["lon", "lat"],
-            get_radius=130,
-            get_fill_color=[0, 120, 255, 220]
+            "ScatterplotLayer", data=pd.DataFrame([{"lat": coords[0], "lon": coords[1]}]),
+            get_position=["lon", "lat"], get_radius=130, get_fill_color=[0, 120, 255, 220]
         )
 
-        view_state = pdk.ViewState(
-            latitude=coords[0],
-            longitude=coords[1],
-            zoom=14
-        )
-
+        view_state = pdk.ViewState(latitude=coords[0], longitude=coords[1], zoom=14)
         deck = pdk.Deck(
-            layers=[layer_cafes, layer_user],
-            initial_view_state=view_state,
-            tooltip={
-                "text": "{CAFE}\n{UBICACION}\n{DISTANCIA}"
-            }
+            layers=[layer_cafes, layer_user], initial_view_state=view_state,
+            tooltip={"text": "{CAFE}\n{UBICACION}\n{DISTANCIA}"}
         )
-
         st.pydeck_chart(deck, use_container_width=True)
 
 # ======================================================
 # TAB 2 – TOSTADORES
 # ======================================================
 with tabs[1]:
-    # Selector de ciudad sincronizado para Tostadores
     ciudad_tost = st.selectbox(
-        "🏙️ Ciudad",
-        ciudades_lista,
+        "🏙️ Ciudad", ciudades_lista,
         index=ciudades_lista.index(st.session_state["ciudad_elegida"]),
-        key="selector_tab2",
-        on_change=actualizar_ciudad_tab2
+        key="selector_tab2", on_change=actualizar_ciudad_tab2
     )
 
     st.subheader("🔥 Tostadores")
@@ -540,65 +469,35 @@ with tabs[1]:
         <style>
             .tostador-card {
                 background: linear-gradient(180deg, #fffef9 0%, #fff9f1 100%);
-                border: 1px solid #f0e1cf;
-                border-radius: 14px;
-                padding: 1rem;
-                min-height: 290px;
-                box-shadow: 0 2px 8px rgba(83, 51, 20, 0.08);
-                display: flex;
-                flex-direction: column;
-                justify-content: space-between;
-                gap: 0.65rem;
+                border: 1px solid #f0e1cf; border-radius: 14px; padding: 1rem;
+                min-height: 290px; box-shadow: 0 2px 8px rgba(83, 51, 20, 0.08);
+                display: flex; flex-direction: column; justify-content: space-between; gap: 0.65rem;
             }
-            .tostador-title {
-                margin: 0;
-                color: #5f3512;
-                font-size: 1.08rem;
-            }
+            .tostador-title { margin: 0; color: #5f3512; font-size: 1.08rem; }
             .tostador-chip {
-                display: inline-block;
-                padding: 0.22rem 0.55rem;
-                border-radius: 999px;
-                background: #f5e6d6;
-                color: #7c4716;
-                font-size: 0.83rem;
-                font-weight: 600;
+                display: inline-block; padding: 0.22rem 0.55rem; border-radius: 999px;
+                background: #f5e6d6; color: #7c4716; font-size: 0.83rem; font-weight: 600;
             }
-            .tostador-desc {
-                margin: 0;
-                color: #3e2c1d;
-                line-height: 1.35;
-                font-size: 0.92rem;
-            }
+            .tostador-desc { margin: 0; color: #3e2c1d; line-height: 1.35; font-size: 0.92rem; }
             .ig-btn {
-                display: inline-block;
-                background: linear-gradient(90deg, #f58529, #dd2a7b 60%, #8134af);
-                color: white !important;
-                padding: 0.45rem 0.7rem;
-                border-radius: 8px;
-                font-weight: 700;
-                text-decoration: none;
-                width: fit-content;
+                display: inline-block; background: linear-gradient(90deg, #f58529, #dd2a7b 60%, #8134af);
+                color: white !important; padding: 0.45rem 0.7rem; border-radius: 8px;
+                font-weight: 700; text-decoration: none; width: fit-content;
             }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    tostadores_ciudad = tostadores[
-        tostadores["CIUDAD"]
-        .str.contains(ciudad_tost, case=False, na=False)
-    ]
+    tostadores_ciudad = tostadores[tostadores["CIUDAD"].str.contains(ciudad_tost, case=False, na=False)]
 
     if tostadores_ciudad.empty:
         st.info("No hay tostadores cargados para esta ciudad.")
     else:
         tostadores_ciudad = tostadores_ciudad.fillna("-").reset_index(drop=True)
-
         for i in range(0, len(tostadores_ciudad), 3):
             cols = st.columns(3)
             fila = tostadores_ciudad.iloc[i:i + 3]
-
             for col, (_, r) in zip(cols, fila.iterrows()):
                 with col:
                     st.markdown(
@@ -621,88 +520,45 @@ with tabs[1]:
 with tabs[2]:
     st.subheader("🔍 Encontrá tu café favorito")
     
-    # Usamos la base de datos que ya cargamos arriba para el contador
     if not todos_los_cafes.empty:
-        # Armamos una lista limpia y ordenada sin repetidos
         nombres_cafes = sorted(todos_los_cafes["CAFE"].dropna().unique().tolist())
-        
-        # El selectbox actúa como un autocompletar natural
         cafe_buscado = st.selectbox(
             "Escribí o seleccioná el nombre del café:",
-            options=[""] + nombres_cafes,
-            index=0
+            options=[""] + nombres_cafes, index=0
         )
         
-        # Si el usuario seleccionó un café, mostramos los resultados
         if cafe_buscado != "":
-            # Filtramos todos los locales que tengan ese nombre
             resultados = todos_los_cafes[todos_los_cafes["CAFE"] == cafe_buscado].copy()
-            
             st.success(f"Encontramos {len(resultados)} sucursal(es) para **{cafe_buscado}**:")
             
-            # Generamos el link de Google Maps
             resultados["MAPS"] = resultados.apply(
-                lambda r: (
-                    "https://www.google.com/maps/search/?api=1"
-                    f"&query={r['LAT']},{r['LONG']}"
-                ),
+                lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}",
                 axis=1
             )
             
-            # Mostramos la tabla limpia
             st.dataframe(
                 resultados[["CAFE", "UBICACION", "CIUDAD", "TOSTADOR", "MAPS"]],
-                use_container_width=True,
-                hide_index=True,
+                use_container_width=True, hide_index=True,
                 column_config={
-                    "MAPS": st.column_config.LinkColumn(
-                        "Google Maps",
-                        display_text="📍 Ver en el mapa"
-                    )
+                    "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Ver en el mapa")
                 }
             )
             
-            # =========================
-            # MAPA DE RESULTADOS
-            # =========================
             st.markdown("### 🗺️ Ubicación")
-            
-            # Preparamos las columnas para pydeck
             map_df = resultados.rename(columns={"LAT": "lat", "LONG": "lon"}).copy()
+            centro_lat, centro_lon = map_df["lat"].mean(), map_df["lon"].mean()
             
-            # Calculamos el centro exacto promediando las coordenadas
-            centro_lat = map_df["lat"].mean()
-            centro_lon = map_df["lon"].mean()
-            
-            # Creamos la capa con los puntos del café
             layer_busqueda = pdk.Layer(
-                "ScatterplotLayer",
-                data=map_df,
-                get_position=["lon", "lat"],
-                get_radius=150, 
-                get_fill_color=[255, 90, 60, 220],
-                pickable=True
+                "ScatterplotLayer", data=map_df, get_position=["lon", "lat"],
+                get_radius=150, get_fill_color=[255, 90, 60, 220], pickable=True
             )
             
-            # Configuramos la vista inicial del mapa
             zoom_inicial = 14 if len(resultados) == 1 else 11
-            
-            view_state = pdk.ViewState(
-                latitude=centro_lat,
-                longitude=centro_lon,
-                zoom=zoom_inicial
-            )
-            
-            # Armamos el mapa
+            view_state = pdk.ViewState(latitude=centro_lat, longitude=centro_lon, zoom=zoom_inicial)
             deck_busqueda = pdk.Deck(
-                layers=[layer_busqueda],
-                initial_view_state=view_state,
-                tooltip={
-                    "text": "{CAFE}\n{UBICACION}\n{CIUDAD}"
-                }
+                layers=[layer_busqueda], initial_view_state=view_state,
+                tooltip={"text": "{CAFE}\n{UBICACION}\n{CIUDAD}"}
             )
-            
-            # Lo mostramos en pantalla
             st.pydeck_chart(deck_busqueda, use_container_width=True)
             
     else:
