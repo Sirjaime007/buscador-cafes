@@ -54,12 +54,16 @@ with st.sidebar:
                     "entry.143951500": sug_comentario
                 }
                 
-                try:
+               try:
                     # Enviamos el paquete a Google de forma oculta
-                    requests.post(url_formulario, data=datos_a_enviar)
-                    st.success("¡Gracias por tu aporte! Lo revisaremos y actualizaremos el mapa pronto. ☕")
-                except Exception:
-                    st.error("Hubo un error de conexión, intentá más tarde.")
+                    respuesta = requests.post(url_formulario, data=datos_a_enviar)
+                    
+                    if respuesta.status_code == 200:
+                        st.success("¡Gracias por tu aporte! Lo revisaremos y actualizaremos el mapa pronto. ☕")
+                    else:
+                        st.error(f"Google rechazó el envío (Código {respuesta.status_code}). Revisá la configuración del formulario.")
+                except Exception as e:
+                    st.error(f"Error técnico de conexión: {e}")
 
 
 # =========================
