@@ -42,32 +42,36 @@ with st.sidebar:
             if sug_nombre == "" or sug_ubicacion == "":
                 st.error("Por favor, completá el nombre y la dirección.")
             else:
-             # --- CONFIGURACIÓN DE TELEGRAM ---
-                TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
-                CHAT_ID = st.secrets["CHAT_ID"]
-                
-                # Armamos el mensaje que te va a llegar al celular
-                mensaje = (
-                    f"🚨 NUEVO REPORTE EN LA APP 🚨\n\n"
-                    f"📌 Tipo: {tipo_aporte}\n"
-                    f"☕ Café: {sug_nombre}\n"
-                    f"📍 Dirección: {sug_ubicacion}\n"
-                    f"🏙️ Ciudad: {sug_ciudad}\n"
-                    f"💬 Comentario: {sug_comentario if sug_comentario else 'Sin comentarios'}"
-                )
-                
-                url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-                
                 try:
-                    # Enviamos el mensaje a Telegram
+                    # --- VAMOS A BUSCAR LAS CLAVES A LA CAJA FUERTE ---
+                    TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
+                    CHAT_ID = str(st.secrets["CHAT_ID"])
+                    
+                    # Armamos el mensaje
+                    mensaje = (
+                        f"🚨 NUEVO REPORTE EN LA APP 🚨\n\n"
+                        f"📌 Tipo: {tipo_aporte}\n"
+                        f"☕ Café: {sug_nombre}\n"
+                        f"📍 Dirección: {sug_ubicacion}\n"
+                        f"🏙️ Ciudad: {sug_ciudad}\n"
+                        f"💬 Comentario: {sug_comentario if sug_comentario else 'Sin comentarios'}"
+                    )
+                    
+                    url_telegram = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+                    
+                    # Enviamos el mensaje
                     respuesta = requests.post(url_telegram, data={"chat_id": CHAT_ID, "text": mensaje})
                     
                     if respuesta.status_code == 200:
                         st.success("¡Gracias por tu aporte! Lo revisaremos pronto. ☕")
                     else:
-                        st.error("Hubo un problema enviando el mensaje.")
+                        st.error("Hubo un problema enviando el mensaje a Telegram.")
+                        
+                except KeyError:
+                    # Si falla la caja fuerte, mostramos esto en vez del "Oh no"
+                    st.error("Falta guardar las claves secretas en la configuración de Streamlit Cloud.")
                 except Exception as e:
-                    st.error("Error técnico de conexión.")
+                    st.error(f"Error técnico: {e}")
 
 # =========================
 # GOOGLE SHEETS CONFIG
