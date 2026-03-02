@@ -19,6 +19,32 @@ st.set_page_config(
 st.title("☕ Buscador de Cafés")
 
 # =========================
+# SIDEBAR - SUGERENCIAS DE LA COMUNIDAD
+# =========================
+with st.sidebar:
+    st.header("💡 Ayudanos a mejorar")
+    st.markdown("¿Falta tu café favorito o encontraste algún dato desactualizado? ¡Avisanos!")
+    
+    with st.form("form_sugerencia", clear_on_submit=True):
+        tipo_aporte = st.radio(
+            "¿Qué querés reportar?", 
+            ["✨ Nuevo local", "✏️ Corregir datos", "❌ Local cerrado"]
+        )
+        sug_nombre = st.text_input("Nombre del local *")
+        sug_ubicacion = st.text_input("Dirección exacta *")
+        sug_ciudad = st.selectbox("Ciudad *", ["Mar del Plata", "Buenos Aires", "La Plata", "Córdoba", "Rosario", "Otra"])
+        sug_comentario = st.text_area("Comentario adicional (Opcional)", height=68)
+        
+        btn_enviar = st.form_submit_button("Enviar sugerencia", use_container_width=True)
+        
+        if btn_enviar:
+            if sug_nombre == "" or sug_ubicacion == "":
+                st.error("Por favor, completá el nombre y la dirección.")
+            else:
+                # Acá es donde en el futuro enviaremos el mensaje a tu celular o base de datos
+                st.success("¡Gracias por tu aporte! Lo revisaremos y actualizaremos el mapa pronto. ☕")
+
+# =========================
 # GOOGLE SHEETS CONFIG
 # =========================
 SPREADSHEET_ID = "10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
@@ -198,13 +224,12 @@ st.markdown(
                 padding: 12px; border-radius: 10px; margin-bottom: 25px; 
                 border-left: 5px solid #5f3512; display: flex; align-items: center;">
         <h4 style="margin: 0; color: #5f3512; font-size: 1.1rem;">
-            📍 Total cafeterías : <strong>{total_cafeterias}</strong>
+            📍 Total cafeterías registradas: <strong>{total_cafeterias}</strong>
         </h4>
     </div>
     """,
     unsafe_allow_html=True
 )
-
 
 # =========================
 # UI – SELECT CITY & TABS
