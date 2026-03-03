@@ -100,14 +100,14 @@ def cargar_todos_los_cafes():
     dfs = []
     for ciudad, gid in GID_CAFES.items():
         df = cargar_cafes(gid).copy()
-        df["CIUDAD_REF"] = ciudad
+        df["CIUDAD"] = ciudad
         dfs.append(df)
     if dfs:
         return pd.concat(dfs, ignore_index=True)
     return pd.DataFrame()
 
 # =========================
-# FUNCIONES
+# FUNCIONES MATEMÁTICAS Y GPS
 # =========================
 @st.cache_resource
 def get_geocoder(): 
@@ -118,6 +118,17 @@ def obtener_calle(lat, lon):
         return get_geocoder().reverse((lat, lon)).address
     except: 
         return "Ubicación detectada"
+
+def calcular_cuadras(km, ciudad):
+    metros = km * 1000
+    divisor = 87 if ciudad == "Mar del Plata" else 100
+    cuadras = int(metros / divisor)
+    if cuadras == 0:
+        return "A pasos"
+    elif cuadras == 1:
+        return "1 cuadra"
+    else:
+        return f"{cuadras} cuadras"
 
 # =========================
 # SIDEBAR - TELEGRAM
@@ -188,7 +199,6 @@ with tabs[0]:
 
     radio_km = st.slider("📏 Radio de búsqueda (km)", 0.5, 5.0, 1.5)
     
-    # Botones restaurados
     col_btn_buscar, col_btn_rec = st.columns(2)
     btn_buscar = col_btn_buscar.button("🔍 Buscar locales cercanos", use_container_width=True)
     btn_recomendar = col_btn_rec.button("🎯 Recomendar café (500m)", use_container_width=True)
@@ -209,17 +219,18 @@ with tabs[0]:
         if lat_f:
             df_ciudad["DIST_KM"] = df_ciudad.apply(lambda r: geodesic((lat_f, lon_f), (r["LAT"], r["LONG"])).km, axis=1)
             
-            # Si tocó "Buscar locales cercanos"
+            # Buscador general
             if btn_buscar:
                 res_busqueda = df_ciudad[df_ciudad["DIST_KM"] <= radio_km].sort_values("DIST_KM")
                 if not res_busqueda.empty:
-                    # Formateamos distancia y creamos el link de Google Maps
-                    res_busqueda["DISTANCIA"] = res_busqueda["DIST_KM"].apply(lambda km: f"{int(km*1000)} m" if km < 1 else f"{km:.2f} km")
+                    # Aplicamos la lógica de cuadras
+                    res_busqueda["CUADRAS"] = res_busqueda["DIST_KM"].apply(lambda km: calcular_cuadras(km, ciudad_sel))
                     res_busqueda["MAPS"] = res_busqueda.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
                     
                     st.dataframe(
-                        res_busqueda[["CAFE", "UBICACION", "TOSTADOR", "DISTANCIA", "MAPS"]], 
+                        res_busqueda[["CAFE", "UBICACION", "TOSTADOR", "CUADRAS", "MAPS"]], 
                         use_container_width=True,
+                        hide_index=True,  # ESTO OCULTA LA COLUMNA DE NÚMEROS
                         column_config={
                             "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa")
                         }
@@ -239,12 +250,12 @@ with tabs[0]:
                 else: 
                     st.warning("No encontramos locales en este radio.")
             
-            # Si tocó "Recomendar café (500m)"
+            # Botón recomendar
             elif btn_recomendar:
                 res_rec = df_ciudad[df_ciudad["DIST_KM"] <= 0.5]
                 if not res_rec.empty:
                     elegido = res_rec.sample(1).iloc[0]
-                    dist_txt = f"{int(elegido['DIST_KM']*1000)} m"
+                    dist_txt = calcular_cuadras(elegido['DIST_KM'], ciudad_sel)
                     map_link = f"https://www.google.com/maps/search/?api=1&query={elegido['LAT']},{elegido['LONG']}"
                     
                     st.markdown(f"""
@@ -293,8 +304,12 @@ with tabs[2]:
     
     if nombre_sel:
         resultado = df_total[df_total["CAFE"] == nombre_sel]
-        st.success(f"Encontrado en {resultado['CIUDAD_REF'].iloc[0]}")
-        st.dataframe(resultado[["CAFE", "UBICACION", "TOSTADOR", "CIUDAD_REF"]], use_container_width=True)
+        st.success(f"Encontrado en {resultado['CIUDAD'].iloc[0]}")
+        st.dataframe(
+            resultado[["CAFE", "UBICACION", "TOSTADOR", "CIUDAD"]], 
+            use_container_width=True,
+            hide_index=True # Oculta la columna de números acá también
+        )
 
 # --- TAB 4: MAPA FEDERAL ---
 with tabs[3]:
