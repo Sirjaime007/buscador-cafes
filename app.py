@@ -5,6 +5,7 @@ from geopy.distance import geodesic
 import pydeck as pdk
 import requests
 from streamlit_js_eval import get_geolocation
+import random
 
 # =========================
 # CONFIG APP Y ESTILOS
@@ -31,7 +32,7 @@ st.markdown("""
     .main-counter h1 { font-weight: 600; font-size: 3.2rem; margin: 0; color: #BE8C63; }
     .main-counter p { font-weight: 300; font-size: 1.1rem; opacity: 0.9; margin: 0; }
 
-    /* Tarjetas de Tostadores */
+    /* Tarjetas */
     .tostador-card {
         background: #FFFFFF;
         border: 1px solid #EADBC8;
@@ -160,27 +161,43 @@ with tabs[0]:
     ciudad_sel = st.selectbox("🏙️ Ciudad de búsqueda", list(GID_CAFES.keys()))
     df_ciudad = cargar_cafes(GID_CAFES[ciudad_sel])
     
+    if "dir_memoria" not in st.session_state:
+        st.session_state.dir_memoria = ""
+    if "coords_memoria" not in st.session_state:
+        st.session_state.coords_memoria = None
+
     col_input, col_gps = st.columns([3, 1])
+    
     with col_gps:
         st.write("###")
         posicion_gps = get_geolocation()
-        usar_gps = st.button("📍 Usar mi ubicación")
+        if st.button("📍 Usar mi ubicación"):
+            if posicion_gps:
+                lat_gps = posicion_gps['coords']['latitude']
+                lon_gps = posicion_gps['coords']['longitude']
+                st.session_state.coords_memoria = (lat_gps, lon_gps)
+                st.session_state.dir_memoria = obtener_calle(lat_gps, lon_gps)
+            else:
+                st.warning("Activá el GPS del navegador.")
 
     with col_input:
-        dir_placeholder = "Ej: Av. Colón 1500"
-        if usar_gps and posicion_gps:
-            lat_gps = posicion_gps['coords']['latitude']
-            lon_gps = posicion_gps['coords']['longitude']
-            dir_placeholder = obtener_calle(lat_gps, lon_gps)
-        
-        direccion = st.text_input("📍 Ingresá tu dirección", value=dir_placeholder if usar_gps else "")
+        direccion = st.text_input("📍 Ingresá tu dirección", value=st.session_state.dir_memoria)
+        if direccion != st.session_state.dir_memoria:
+            st.session_state.dir_memoria = direccion
+            st.session_state.coords_memoria = None
 
     radio_km = st.slider("📏 Radio de búsqueda (km)", 0.5, 5.0, 1.5)
     
-    if st.button("🔍 Buscar locales cercanos", use_container_width=True):
+    # Botones restaurados
+    col_btn_buscar, col_btn_rec = st.columns(2)
+    btn_buscar = col_btn_buscar.button("🔍 Buscar locales cercanos", use_container_width=True)
+    btn_recomendar = col_btn_rec.button("🎯 Recomendar café (500m)", use_container_width=True)
+    
+    if btn_buscar or btn_recomendar:
         lat_f, lon_f = None, None
-        if usar_gps and posicion_gps:
-            lat_f, lon_f = posicion_gps['coords']['latitude'], posicion_gps['coords']['longitude']
+        
+        if st.session_state.coords_memoria and direccion == st.session_state.dir_memoria:
+            lat_f, lon_f = st.session_state.coords_memoria
         elif direccion:
             try:
                 res = get_geocoder().geocode(f"{direccion}, {ciudad_sel}, Argentina")
@@ -191,27 +208,59 @@ with tabs[0]:
 
         if lat_f:
             df_ciudad["DIST_KM"] = df_ciudad.apply(lambda r: geodesic((lat_f, lon_f), (r["LAT"], r["LONG"])).km, axis=1)
-            res = df_ciudad[df_ciudad["DIST_KM"] <= radio_km].sort_values("DIST_KM")
             
-            if not res.empty:
-                st.dataframe(res[["CAFE", "UBICACION", "TOSTADOR"]], use_container_width=True)
-                
-                # Mapa con color café oscuro
-                view = pdk.ViewState(latitude=lat_f, longitude=lon_f, zoom=14)
-                layer = pdk.Layer(
-                    "ScatterplotLayer", 
-                    res, 
-                    get_position=["LONG", "LAT"],
-                    get_color=[75, 56, 50, 200], 
-                    get_radius=40, 
-                    radius_min_pixels=4, 
-                    pickable=True
-                )
-                st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view, tooltip={"text": "{CAFE}"}))
-            else: 
-                st.warning("Nada en este radio.")
+            # Si tocó "Buscar locales cercanos"
+            if btn_buscar:
+                res_busqueda = df_ciudad[df_ciudad["DIST_KM"] <= radio_km].sort_values("DIST_KM")
+                if not res_busqueda.empty:
+                    # Formateamos distancia y creamos el link de Google Maps
+                    res_busqueda["DISTANCIA"] = res_busqueda["DIST_KM"].apply(lambda km: f"{int(km*1000)} m" if km < 1 else f"{km:.2f} km")
+                    res_busqueda["MAPS"] = res_busqueda.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
+                    
+                    st.dataframe(
+                        res_busqueda[["CAFE", "UBICACION", "TOSTADOR", "DISTANCIA", "MAPS"]], 
+                        use_container_width=True,
+                        column_config={
+                            "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa")
+                        }
+                    )
+                    
+                    view = pdk.ViewState(latitude=lat_f, longitude=lon_f, zoom=14)
+                    layer = pdk.Layer(
+                        "ScatterplotLayer", 
+                        res_busqueda, 
+                        get_position=["LONG", "LAT"],
+                        get_color=[75, 56, 50, 200], 
+                        get_radius=40, 
+                        radius_min_pixels=4, 
+                        pickable=True
+                    )
+                    st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view, tooltip={"text": "{CAFE}"}))
+                else: 
+                    st.warning("No encontramos locales en este radio.")
+            
+            # Si tocó "Recomendar café (500m)"
+            elif btn_recomendar:
+                res_rec = df_ciudad[df_ciudad["DIST_KM"] <= 0.5]
+                if not res_rec.empty:
+                    elegido = res_rec.sample(1).iloc[0]
+                    dist_txt = f"{int(elegido['DIST_KM']*1000)} m"
+                    map_link = f"https://www.google.com/maps/search/?api=1&query={elegido['LAT']},{elegido['LONG']}"
+                    
+                    st.markdown(f"""
+                        <div class="tostador-card" style="border: 2px solid #BE8C63; text-align: center; max-width: 500px; margin: 0 auto;">
+                            <h3 style="color: #BE8C63; margin-bottom: 15px;">🎯 Recomendación del momento</h3>
+                            <h2 style="color: #4B3832; margin-bottom: 5px;">{elegido['CAFE']}</h2>
+                            <p style="font-size: 1.1rem; margin-bottom: 5px;">📍 {elegido['UBICACION']} <strong>({dist_txt})</strong></p>
+                            <p style="color: #85746D; margin-bottom: 15px;">☕ Tostador: {elegido['TOSTADOR']}</p>
+                            <a class="ig-btn" href="{map_link}" target="_blank">📍 Llevame ahí</a>
+                        </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.warning("No tenés cafeterías a menos de 500 metros para recomendarte ahora mismo. ☹️ ¡Probá ampliando el radio de búsqueda normal!")
+
         else: 
-            st.error("No se pudo detectar ubicación.")
+            st.error("No pudimos detectar la ubicación. Verificá la dirección o usá el botón de GPS.")
 
 # --- TAB 2: TOSTADORES ---
 with tabs[1]:
