@@ -177,31 +177,33 @@ with tabs[0]:
     if "coords_memoria" not in st.session_state:
         st.session_state.coords_memoria = None
 
+    posicion_gps = get_geolocation()
     col_input, col_gps = st.columns([3, 1])
     
-    with col_gps:
-        st.write("###")
-        posicion_gps = get_geolocation()
-        if st.button("📍 Usar mi ubicación"):
-            if posicion_gps:
-                lat_gps = posicion_gps['coords']['latitude']
-                lon_gps = posicion_gps['coords']['longitude']
-                st.session_state.coords_memoria = (lat_gps, lon_gps)
-                st.session_state.dir_memoria = obtener_calle(lat_gps, lon_gps)
-            else:
-                st.warning("Activá el GPS del navegador.")
-
     with col_input:
         direccion = st.text_input("📍 Ingresá tu dirección", value=st.session_state.dir_memoria)
         if direccion != st.session_state.dir_memoria:
             st.session_state.dir_memoria = direccion
             st.session_state.coords_memoria = None
 
+    with col_gps:
+        # Esto alinea el botón perfectamente con la caja de texto
+        st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("📍 Usar mi ubicación", use_container_width=True):
+            if posicion_gps:
+                lat_gps = posicion_gps['coords']['latitude']
+                lon_gps = posicion_gps['coords']['longitude']
+                st.session_state.coords_memoria = (lat_gps, lon_gps)
+                st.session_state.dir_memoria = obtener_calle(lat_gps, lon_gps)
+                st.rerun() # Recarga rápido para mostrar la dirección en la cajita
+            else:
+                st.warning("Activá el GPS del navegador.")
+
     radio_km = st.slider("📏 Radio de búsqueda (km)", 0.5, 5.0, 1.5)
     
     col_btn_buscar, col_btn_rec = st.columns(2)
     btn_buscar = col_btn_buscar.button("🔍 Buscar locales cercanos", use_container_width=True)
-    btn_recomendar = col_btn_rec.button("🎯 Recomendar café (500m)", use_container_width=True)
+    btn_recomendar = col_btn_rec.button("🎯 Recomendar café", use_container_width=True)
     
     if btn_buscar or btn_recomendar:
         lat_f, lon_f = None, None
@@ -223,14 +225,13 @@ with tabs[0]:
             if btn_buscar:
                 res_busqueda = df_ciudad[df_ciudad["DIST_KM"] <= radio_km].sort_values("DIST_KM")
                 if not res_busqueda.empty:
-                    # Aplicamos la lógica de cuadras
                     res_busqueda["CUADRAS"] = res_busqueda["DIST_KM"].apply(lambda km: calcular_cuadras(km, ciudad_sel))
                     res_busqueda["MAPS"] = res_busqueda.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
                     
                     st.dataframe(
                         res_busqueda[["CAFE", "UBICACION", "TOSTADOR", "CUADRAS", "MAPS"]], 
                         use_container_width=True,
-                        hide_index=True,  # ESTO OCULTA LA COLUMNA DE NÚMEROS
+                        hide_index=True,
                         column_config={
                             "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa")
                         }
@@ -308,7 +309,7 @@ with tabs[2]:
         st.dataframe(
             resultado[["CAFE", "UBICACION", "TOSTADOR", "CIUDAD"]], 
             use_container_width=True,
-            hide_index=True # Oculta la columna de números acá también
+            hide_index=True
         )
 
 # --- TAB 4: MAPA FEDERAL ---
