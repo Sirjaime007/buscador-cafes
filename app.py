@@ -42,10 +42,24 @@ def cargar_cafes(gid):
 def cargar_tostadores():
     return pd.read_csv(sheet_url(GID_TOSTADORES), dtype=str)
 
+@st.cache_data(ttl=600)
+def cargar_todos():
+    dfs = []
+    for ciudad, gid in GID_CAFES.items():
+        df = cargar_cafes(gid)
+        df["CIUDAD"] = ciudad
+        dfs.append(df)
+    return pd.concat(dfs, ignore_index=True)
+
 # =====================================
-# PESTAÑAS
+# TABS
 # =====================================
-tab1, tab2, tab3 = st.tabs(["🔍 Buscar Cercanos", "🏷️ Buscar por Nombre", "☕ Tostadores"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🔍 Buscar Cercanos",
+    "🏷️ Buscar por Nombre",
+    "☕ Tostadores",
+    "🗺️ Mapa Nacional"
+])
 
 # =====================================
 # TAB 1 - BUSCAR CERCANOS
@@ -55,16 +69,14 @@ with tab1:
     ciudad = st.selectbox("Ciudad", list(GID_CAFES.keys()))
     cafes = cargar_cafes(GID_CAFES[ciudad])
 
-    tostadores_unicos = ["Todos"] + sorted(cafes["TOSTADOR"].dropna().unique())
-    filtro_tostador = st.selectbox("Filtrar por tostador", tostadores_unicos)
+    direccion = st.text_input("Dirección")
 
-    col1, col2 = st.columns([3,1])
+    filtro_tostador = st.selectbox(
+        "Filtrar por tostador",
+        ["Todos"] + sorted(cafes["TOSTADOR"].dropna().unique())
+    )
 
-    with col1:
-        direccion = st.text_input("Dirección")
-
-    with col2:
-        geo_btn = st.button("📡 Usar mi ubicación")
+    geo_btn = st.button("📡 Usar mi ubicación")
 
     coords = None
 
@@ -112,45 +124,108 @@ with tab1:
                 use_container_width=True
             )
 
-            mapa_resultado = resultado.copy()
-            user_coords = coords
-        else:
-            mapa_resultado = None
-            user_coords = None
-    else:
-        mapa_resultado = None
-        user_coords = None
+            st.markdown("### 🗺️ Mapa Resultado")
+
+            df_map = resultado.rename(columns={"LAT":"lat","LONG":"lon"})
+
+            layer_cafes = pdk.Layer(
+                "ScatterplotLayer",
+                data=df_map,
+                get_position=["lon","lat"],
+                radius_units="pixels",
+                get_radius=8,
+                get_fill_color=[200,30,0,200],
+                pickable=True,
+            )
+
+            layer_user = pdk.Layer(
+                "ScatterplotLayer",
+                data=pd.DataFrame([{"lat": coords[0], "lon": coords[1]}]),
+                get_position=["lon","lat"],
+                radius_units="pixels",
+                get_radius=10,
+                get_fill_color=[0,120,255,220],
+            )
+
+            view_state = pdk.ViewState(
+                latitude=coords[0],
+                longitude=coords[1],
+                zoom=14
+            )
+
+            deck = pdk.Deck(
+                layers=[layer_cafes, layer_user],
+                initial_view_state=view_state,
+                tooltip={"text": "{CAFE}\n{UBICACION}"}
+            )
+
+            st.pydeck_chart(deck, use_container_width=True)
 
 # =====================================
 # TAB 2 - BUSCAR POR NOMBRE
 # =====================================
 with tab2:
 
-    ciudad2 = st.selectbox("Ciudad ", list(GID_CAFES.keys()), key="ciudad_nombre")
-    cafes2 = cargar_cafes(GID_CAFES[ciudad2])
+    ciudad_nombre = st.selectbox("Ciudad", list(GID_CAFES.keys()), key="nombre_ciudad")
+    cafes2 = cargar_cafes(GID_CAFES[ciudad_nombre])
 
-    nombre_busqueda = st.text_input("Nombre del café")
+    nombre = st.text_input("Nombre del café")
 
-    if nombre_busqueda:
-        resultado_nombre = cafes2[cafes2["CAFE"].str.contains(nombre_busqueda, case=False, na=False)]
-
-        if not resultado_nombre.empty:
-            st.dataframe(
-                resultado_nombre[["CAFE","UBICACION","TOSTADOR"]].reset_index(drop=True),
-                use_container_width=True
-            )
-        else:
-            st.info("No se encontraron resultados.")
+    if nombre:
+        resultado = cafes2[cafes2["CAFE"].str.contains(nombre, case=False, na=False)]
+        st.dataframe(resultado.reset_index(drop=True), use_container_width=True)
 
 # =====================================
 # TAB 3 - TOSTADORES
 # =====================================
 with tab3:
-    tostadores = cargar_tostadores()
-    st.dataframe(tostadores.reset_index(drop=True), use_container_width=True)
+
+    ciudad_tost = st.selectbox("Ciudad", list(GID_CAFES.keys()), key="tost_ciudad")
+    cafes_t = cargar_cafes(GID_CAFES[ciudad_tost])
+
+    tostadores_ciudad = cafes_t["TOSTADOR"].dropna().unique()
+    df_tost = cargar_tostadores()
+
+    df_filtrado = df_tost[df_tost["NOMBRE"].isin(tostadores_ciudad)]
+
+    st.dataframe(df_filtrado.reset_index(drop=True), use_container_width=True)
 
 # =====================================
-# REPORTE (SIDEBAR)
+# TAB 4 - MAPA NACIONAL
+# =====================================
+with tab4:
+
+    st.subheader("Mapa completo de cafeterías en Argentina")
+
+    todos = cargar_todos()
+    df_arg = todos.rename(columns={"LAT":"lat","LONG":"lon"})
+
+    layer_arg = pdk.Layer(
+        "ScatterplotLayer",
+        data=df_arg,
+        get_position=["lon","lat"],
+        radius_units="pixels",
+        get_radius=5,
+        get_fill_color=[120,60,20,180],
+        pickable=True,
+    )
+
+    view_state_arg = pdk.ViewState(
+        latitude=-38.4161,
+        longitude=-63.6167,
+        zoom=4
+    )
+
+    deck_arg = pdk.Deck(
+        layers=[layer_arg],
+        initial_view_state=view_state_arg,
+        tooltip={"text": "{CAFE}\n{CIUDAD}"}
+    )
+
+    st.pydeck_chart(deck_arg, use_container_width=True)
+
+# =====================================
+# SIDEBAR REPORTE
 # =====================================
 with st.sidebar:
     st.header("💡 Reportar Café")
@@ -159,7 +234,7 @@ with st.sidebar:
         tipo = st.selectbox("Tipo de reporte", ["Nueva cafetería", "Modificación", "Cierre"])
         nombre = st.text_input("Nombre")
         direccion = st.text_input("Dirección")
-        ciudad = st.selectbox("Ciudad", list(GID_CAFES.keys()), key="ciudad_reporte")
+        ciudad = st.selectbox("Ciudad", list(GID_CAFES.keys()), key="rep_ciudad")
         comentarios = st.text_area("Comentarios")
         enviar = st.form_submit_button("Enviar")
 
@@ -184,46 +259,3 @@ Comentarios:
                 st.success("Reporte enviado")
             except:
                 st.error("Error enviando reporte")
-
-# =====================================
-# MAPA ABAJO DEL TODO (PUNTOS PEQUEÑOS)
-# =====================================
-st.markdown("---")
-st.header("🗺️ Mapa")
-
-if "mapa_resultado" in locals() and mapa_resultado is not None:
-
-    df_map = mapa_resultado.rename(columns={"LAT":"lat","LONG":"lon"})
-
-    layer_cafes = pdk.Layer(
-        "ScatterplotLayer",
-        data=df_map,
-        get_position=["lon","lat"],
-        get_radius=1,
-        radius_min_pixels=2,
-        get_fill_color=[200,30,0,180],
-        pickable=True,
-    )
-
-    layer_user = pdk.Layer(
-        "ScatterplotLayer",
-        data=pd.DataFrame([{"lat": user_coords[0], "lon": user_coords[1]}]),
-        get_position=["lon","lat"],
-        get_radius=1,
-        radius_min_pixels=4,
-        get_fill_color=[0,120,255,220],
-    )
-
-    view_state = pdk.ViewState(
-        latitude=user_coords[0],
-        longitude=user_coords[1],
-        zoom=14
-    )
-
-    deck = pdk.Deck(
-        layers=[layer_cafes, layer_user],
-        initial_view_state=view_state,
-        tooltip={"text": "{CAFE}\n{UBICACION}"}
-    )
-
-    st.pydeck_chart(deck, use_container_width=True)
