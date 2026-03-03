@@ -12,22 +12,19 @@ from streamlit_js_eval import get_geolocation
 # =========================
 # CONFIG APP
 # =========================
-st.set_page_config(page_title="Mapa de Cafeterías", page_icon="☕", layout="wide")
+st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wide")
 
-# Estilo para el Contador y Badges
+# Estilo para el Contador Estético
 st.markdown("""
     <style>
     .main-counter {
         background: linear-gradient(135deg, #5f3512 0%, #a67c52 100%);
-        color: white;
-        padding: 30px;
-        border-radius: 15px;
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        color: white; padding: 25px; border-radius: 15px;
+        text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         margin-bottom: 25px;
     }
-    .main-counter h1 { font-size: 3rem; margin: 0; }
-    .main-counter p { font-size: 1.2rem; opacity: 0.9; }
+    .main-counter h1 { font-size: 2.8rem; margin: 0; }
+    .main-counter p { font-size: 1.1rem; opacity: 0.9; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -39,6 +36,7 @@ GID_CAFES = {
     "Mar del Plata": "0", "Buenos Aires": "1296176686", 
     "La Plata": "208452991", "Córdoba": "1250014567", "Rosario": "1691979590"
 }
+GID_TOSTADORES = "1590442133"
 
 def sheet_url(gid: str) -> str:
     return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid={gid}"
@@ -50,122 +48,129 @@ def cargar_cafes(gid):
         df["LAT"] = pd.to_numeric(df["LAT"].str.replace(",", "."), errors="coerce")
         df["LONG"] = pd.to_numeric(df["LONG"].str.replace(",", "."), errors="coerce")
         return df.dropna(subset=["LAT", "LONG"])
-    except:
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
 @st.cache_data(ttl=300)
-def cargar_todo_argentina():
-    lista_dfs = []
+def cargar_tostadores():
+    try: return pd.read_csv(sheet_url(GID_TOSTADORES), dtype=str)
+    except: return pd.DataFrame()
+
+@st.cache_data(ttl=300)
+def cargar_todos_los_cafes():
+    dfs = []
     for ciudad, gid in GID_CAFES.items():
-        df = cargar_cafes(gid)
-        df["CIUDAD_ORIGEN"] = ciudad
-        lista_dfs.append(df)
-    return pd.concat(lista_dfs, ignore_index=True)
+        df = cargar_cafes(gid).copy()
+        df["CIUDAD"] = ciudad
+        dfs.append(df)
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 # =========================
-# GEOCODER PARA CALLE GPS
+# FUNCIONES DE APOYO
 # =========================
 @st.cache_resource
-def get_geocoder():
-    return ArcGIS(timeout=10)
+def get_geocoder(): return ArcGIS(timeout=10)
 
 def obtener_calle(lat, lon):
-    geo = get_geocoder()
-    try:
-        location = geo.reverse((lat, lon))
-        return location.address
-    except:
-        return "Dirección desconocida"
+    try: return get_geocoder().reverse((lat, lon)).address
+    except: return "Ubicación GPS"
+
+def normalizar_texto(valor, fallback="Sin dato"):
+    if pd.isna(valor): return fallback
+    return str(valor).strip()
 
 # =========================
-# LÓGICA DE TELEGRAM (CON SECRETS)
+# SIDEBAR - TELEGRAM (SEGURIDAD OK)
 # =========================
 with st.sidebar:
-    st.header("💡 Sugerencias")
+    st.header("💡 Ayudanos a mejorar")
     with st.form("form_sugerencia", clear_on_submit=True):
-        tipo = st.radio("Tipo", ["✨ Nuevo", "✏️ Editar", "❌ Cerrado"])
-        nombre = st.text_input("Nombre *")
-        dire = st.text_input("Dirección *")
-        enviar = st.form_submit_button("Enviar a Lisandro")
-        if enviar and nombre and dire:
+        tipo = st.radio("Reportar", ["✨ Nuevo local", "✏️ Editar", "❌ Cerrado"])
+        sug_nombre = st.text_input("Nombre del local *")
+        sug_ubicacion = st.text_input("Dirección *")
+        btn_enviar = st.form_submit_button("Enviar sugerencia")
+        if btn_enviar and sug_nombre and sug_ubicacion:
             try:
-                msg = f"☕ NUEVO REPORTE: {tipo}\nNombre: {nombre}\nDir: {dire}"
+                msg = f"☕ NUEVO REPORTE: {tipo}\nNombre: {sug_nombre}\nDir: {sug_ubicacion}"
                 requests.post(f"https://api.telegram.org/bot{st.secrets['TELEGRAM_TOKEN']}/sendMessage", 
                               data={"chat_id": st.secrets['CHAT_ID'], "text": msg})
-                st.success("¡Enviado!")
-            except:
-                st.error("Error al enviar")
+                st.success("¡Gracias, Lisandro! Recibido.")
+            except: st.error("Error al enviar")
 
 # =========================
-# INTERFAZ PRINCIPAL
+# UI PRINCIPAL - CONTADOR
 # =========================
-df_total = cargar_todo_argentina()
+df_total = cargar_todos_los_cafes()
+st.markdown(f"""<div class="main-counter"><p>Explorando el café de especialidad</p><h1>{len(df_total)} Cafeterías</h1><p>en Argentina</p></div>""", unsafe_allow_html=True)
 
-st.markdown(f"""
-    <div class="main-counter">
-        <p>Explorando el café de especialidad</p>
-        <h1>{len(df_total)} Cafeterías</h1>
-        <p>en todo el país</p>
-    </div>
-""", unsafe_allow_html=True)
+tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar por Nombre", "🇦🇷 Mapa Federal"])
 
-tabs = st.tabs(["📍 Cerca de mí", "🇦🇷 Mapa Federal", "🏙️ Por Ciudad"])
-
-# --- TAB 1: GPS ---
+# --- TAB 1: CAFÉS (CON BOTÓN GPS) ---
 with tabs[0]:
-    loc = get_geolocation()
-    if loc:
-        lat, lon = loc['coords']['latitude'], loc['coords']['longitude']
-        calle_actual = obtener_calle(lat, lon)
-        st.success(f"📍 Detectado en: **{calle_actual}**")
-        
-        radio = st.slider("¿A cuántos km buscamos?", 0.5, 5.0, 1.5)
-        
-        df_total["DIST"] = df_total.apply(lambda r: geodesic((lat, lon), (r["LAT"], r["LONG"])).km, axis=1)
-        cercanos = df_total[df_total["DIST"] <= radio].sort_values("DIST")
-        
-        if not cercanos.empty:
-            view_state = pdk.ViewState(latitude=lat, longitude=lon, zoom=14)
-            layer = pdk.Layer(
-                "ScatterplotLayer",
-                cercanos,
-                get_position=["LONG", "LAT"],
-                get_color=[255, 90, 0, 160],
-                get_radius=40,
-                radius_min_pixels=4, # Mantiene el punto visible al alejar
-                pickable=True
-            )
-            st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state, tooltip={"text": "{CAFE}\n{UBICACION}"}))
-            st.dataframe(cercanos[["CAFE", "UBICACION", "CIUDAD_ORIGEN"]], use_container_width=True)
+    ciudad_sel = st.selectbox("🏙️ Ciudad", list(GID_CAFES.keys()))
+    df_ciudad = cargar_cafes(GID_CAFES[ciudad_sel])
+    
+    col_input, col_gps = st.columns([3, 1])
+    with col_input:
+        direccion = st.text_input("📍 Ingresá tu dirección", placeholder="Ej: Av. Colón 1500")
+    with col_gps:
+        st.write("") # Espaciador
+        usar_gps = st.button("📍 Usar GPS")
+
+    # Lógica de ubicación
+    lat_user, lon_user = None, None
+    if usar_gps:
+        loc = get_geolocation()
+        if loc:
+            lat_user, lon_user = loc['coords']['latitude'], loc['coords']['longitude']
+            direccion = obtener_calle(lat_user, lon_user)
+            st.info(f"Ubicación detectada: {direccion}")
         else:
-            st.warning("No hay cafés cerca en este radio.")
-    else:
-        st.info("Esperando señal GPS... Por favor, aceptá los permisos en el navegador.")
+            st.warning("Por favor, habilitá el GPS en tu navegador.")
 
-# --- TAB 2: MAPA FEDERAL (Punto 4) ---
+    radio_km = st.slider("📏 Radio de búsqueda (km)", 0.5, 5.0, 1.5)
+    
+    if st.button("🔍 Buscar Cafés Cercanos", use_container_width=True):
+        if not lat_user and direccion:
+            try:
+                res = get_geocoder().geocode(f"{direccion}, {ciudad_sel}, Argentina")
+                if res: lat_user, lon_user = res.latitude, res.longitude
+            except: pass
+
+        if lat_user:
+            df_ciudad["DIST_KM"] = df_ciudad.apply(lambda r: geodesic((lat_user, lon_user), (r["LAT"], r["LONG"])).km, axis=1)
+            resultado = df_ciudad[df_ciudad["DIST_KM"] <= radio_km].sort_values("DIST_KM")
+            
+            if not resultado.empty:
+                st.subheader(f"Encontramos {len(resultado)} locales")
+                st.dataframe(resultado[["CAFE", "UBICACION", "TOSTADOR"]], use_container_width=True)
+                
+                # MAPA CON PUNTOS CHICOS PERO VISIBLES
+                view = pdk.ViewState(latitude=lat_user, longitude=lon_user, zoom=14)
+                layer = pdk.Layer("ScatterplotLayer", resultado, get_position=["LONG", "LAT"],
+                                  get_color=[150, 75, 0, 160], get_radius=40, radius_min_pixels=4, pickable=True)
+                st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view, tooltip={"text": "{CAFE}\n{UBICACION}"}))
+            else:
+                st.warning("No hay cafés en ese radio.")
+        else:
+            st.error("No pudimos obtener una ubicación. Ingresá una calle o activá el GPS.")
+
+# --- TAB 2: TOSTADORES (COMO ANTES) ---
 with tabs[1]:
-    st.subheader("Mapa de Cafeterías en Argentina")
-    
-    view_state_arg = pdk.ViewState(latitude=-38.4161, longitude=-63.6167, zoom=4)
-    
-    layer_federal = pdk.Layer(
-        "ScatterplotLayer",
-        df_total,
-        get_position=["LONG", "LAT"],
-        get_color=[100, 50, 0, 200],
-        get_radius=30,
-        radius_min_pixels=3, # Puntos pequeños y definidos
-        pickable=True
-    )
-    
-    st.pydeck_chart(pdk.Deck(
-        layers=[layer_federal], 
-        initial_view_state=view_state_arg,
-        tooltip={"text": "{CAFE} ({CIUDAD_ORIGEN})"}
-    ))
+    tostadores = cargar_tostadores()
+    st.subheader("🔥 Tostadores Disponibles")
+    st.dataframe(tostadores, use_container_width=True)
 
-# --- TAB 3: POR CIUDAD ---
+# --- TAB 3: BUSCAR POR NOMBRE (COMO ANTES) ---
 with tabs[2]:
-    ciudad_sel = st.selectbox("Elegí una ciudad para ver el listado", list(GID_CAFES.keys()))
-    df_c = cargar_cafes(GID_CAFES[ciudad_sel])
-    st.dataframe(df_c, use_container_width=True)
+    nombre_buscado = st.text_input("Escribí el nombre del café")
+    if nombre_buscado:
+        match = df_total[df_total["CAFE"].str.contains(nombre_buscado, case=False, na=False)]
+        st.dataframe(match[["CAFE", "UBICACION", "CIUDAD"]], use_container_width=True)
+
+# --- TAB 4: MAPA FEDERAL (NUEVO) ---
+with tabs[3]:
+    st.subheader("🇦🇷 Todas las cafeterías del país")
+    view_arg = pdk.ViewState(latitude=-38.41, longitude=-63.61, zoom=4)
+    layer_fed = pdk.Layer("ScatterplotLayer", df_total, get_position=["LONG", "LAT"],
+                          get_color=[100, 50, 0, 200], get_radius=30, radius_min_pixels=3, pickable=True)
+    st.pydeck_chart(pdk.Deck(layers=[layer_fed], initial_view_state=view_arg, tooltip={"text": "{CAFE} ({CIUDAD})"}))
