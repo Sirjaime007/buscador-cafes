@@ -16,7 +16,14 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     
-    html, body, [class*="st-"] { font-family: 'Inter', sans-serif; color: #4B3832; }
+    /* Aplica la fuente a textos normales, pero respeta los iconos de Streamlit */
+    html, body, h1, h2, h3, h4, h5, h6, p, label, div { 
+        font-family: 'Inter', sans-serif; 
+    }
+    .material-symbols-rounded, .material-icons {
+        font-family: 'Material Symbols Rounded' !important;
+    }
+    
     .stApp { background-color: #FDF8F5; }
     
     /* Contador Minimalista */
@@ -187,7 +194,6 @@ with tabs[0]:
             st.session_state.coords_memoria = None
 
     with col_gps:
-        # Esto alinea el botón perfectamente con la caja de texto
         st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
         if st.button("📍 Usar mi ubicación", use_container_width=True):
             if posicion_gps:
@@ -195,7 +201,7 @@ with tabs[0]:
                 lon_gps = posicion_gps['coords']['longitude']
                 st.session_state.coords_memoria = (lat_gps, lon_gps)
                 st.session_state.dir_memoria = obtener_calle(lat_gps, lon_gps)
-                st.rerun() # Recarga rápido para mostrar la dirección en la cajita
+                st.rerun()
             else:
                 st.warning("Activá el GPS del navegador.")
 
