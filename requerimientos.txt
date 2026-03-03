@@ -3,4 +3,6 @@ pandas
 geopy
 pydeck
 gspread
+
 google-auth
+streamlit-js-eval
