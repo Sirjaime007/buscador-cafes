@@ -306,12 +306,43 @@ with tabs[1]:
 # --- TAB 3: BUSCAR POR NOMBRE ---
 with tabs[2]:
     st.subheader("🔍 Buscador inteligente")
-    lista_nombres = sorted(df_total["CAFE"].unique())
-    nombre_sel = st.selectbox("Seleccioná o escribí el nombre del café", [""] + lista_nombres)
+    
+    # 1. Armamos las opciones del filtro con sus contadores
+    total_cafeterias = len(df_total)
+    texto_todas = f"Todas ({total_cafeterias})"
+    
+    opciones_filtro_ciudad = [texto_todas]
+    mapa_filtro_ciudad = {texto_todas: "Todas"} # Diccionario para saber qué eligió
+    
+    for c in sorted(df_total["CIUDAD"].dropna().unique()):
+        cantidad = len(df_total[df_total["CIUDAD"] == c])
+        texto_opcion = f"{c} ({cantidad})"
+        opciones_filtro_ciudad.append(texto_opcion)
+        mapa_filtro_ciudad[texto_opcion] = c
+        
+    # 2. Mostramos el selector de ciudad
+    ciudad_filtro_sel = st.selectbox("🏙️ Filtrar lista por ciudad", opciones_filtro_ciudad)
+    ciudad_real_elegida = mapa_filtro_ciudad[ciudad_filtro_sel]
+    
+    # 3. Filtramos la base de datos según la ciudad (o dejamos todas)
+    if ciudad_real_elegida == "Todas":
+        df_nombres_filtrado = df_total
+    else:
+        df_nombres_filtrado = df_total[df_total["CIUDAD"] == ciudad_real_elegida]
+        
+    # 4. Mostramos el selector de nombres solo con los cafés de esa ciudad
+    lista_nombres_filtrada = sorted(df_nombres_filtrado["CAFE"].dropna().unique())
+    nombre_sel = st.selectbox("☕ Seleccioná o escribí el nombre del café", [""] + lista_nombres_filtrada)
     
     if nombre_sel:
-        resultado = df_total[df_total["CAFE"] == nombre_sel]
-        st.success(f"Encontrado en {resultado['CIUDAD'].iloc[0]}")
+        resultado = df_nombres_filtrado[df_nombres_filtrado["CAFE"] == nombre_sel]
+        
+        # Si la cadena tiene sucursales, avisamos
+        if len(resultado) > 1:
+            st.success(f"Encontramos {len(resultado)} sucursales de **{nombre_sel}**")
+        else:
+            st.success(f"Encontrado en {resultado['CIUDAD'].iloc[0]}")
+            
         st.dataframe(
             resultado[["CAFE", "UBICACION", "TOSTADOR", "CIUDAD"]], 
             use_container_width=True,
