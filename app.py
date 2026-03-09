@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from geopy.geocoders import ArcGIS
+from geopy.geocoders import ArcGIS, Nominatim
 from geopy.distance import geodesic
 import pydeck as pdk
 import requests
@@ -16,6 +16,7 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     
+    /* Aplica la fuente SOLO a textos, evitando romper los iconos de Streamlit */
     html, body, h1, h2, h3, h4, h5, h6, p, label, span { 
         font-family: 'Inter', sans-serif; 
     }
@@ -116,6 +117,10 @@ def cargar_todos_los_cafes():
 def get_geocoder(): 
     return ArcGIS(timeout=10)
 
+@st.cache_resource
+def get_osm_geocoder(): 
+    return Nominatim(user_agent="cafes_app_arg", timeout=10)
+
 def obtener_calle(lat, lon):
     try: 
         return get_geocoder().reverse((lat, lon)).address
@@ -135,15 +140,14 @@ def calcular_cuadras(km, ciudad):
 
 def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
     """
-    Busca primero en la base de datos local para evitar los problemas de La Plata.
-    Si no encuentra, recurre a ArcGIS.
+    Busca en base local, luego ArcGIS, y como Plan B (ideal para La Plata/Tolosa) usa OpenStreetMap.
     """
     if not direccion or direccion.strip() == "":
         return None, None, None
         
     dir_limpia = direccion.strip().lower()
     
-    # 1. Buscar en la base local (Tu Excel)
+    # 1. Base local (Tu Excel)
     match_local = df_ciudad[df_ciudad["UBICACION"].str.lower().str.contains(dir_limpia, na=False)]
     if not match_local.empty:
         lat = match_local.iloc[0]["LAT"]
@@ -152,12 +156,23 @@ def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
         ubi = match_local.iloc[0]["UBICACION"]
         return lat, lon, f"{ubi} (Punto exacto de {nom})"
         
-    # 2. Si no es un café, buscamos vía satélite (ArcGIS)
+    query = f"{direccion}, {ciudad_sel}, Argentina"
+    
+    # 2. Vía satélite (ArcGIS) - Búsqueda normal
     try:
         geo = get_geocoder()
-        res = geo.geocode(f"{direccion}, {ciudad_sel}, Buenos Aires, Argentina")
+        res = geo.geocode(query)
         if res:
             return res.latitude, res.longitude, res.address
+    except:
+        pass
+        
+    # 3. Plan B: OpenStreetMap (Especialista en La Plata, diagonales y calles numeradas)
+    try:
+        geo_osm = get_osm_geocoder()
+        res_osm = geo_osm.geocode(query)
+        if res_osm:
+            return res_osm.latitude, res_osm.longitude, res_osm.address
     except:
         pass
         
@@ -245,11 +260,9 @@ with tabs[0]:
     if btn_buscar or btn_recomendar:
         lat_f, lon_f, feedback = None, None, ""
         
-        # 1. Reusar memoria de GPS si existe
         if st.session_state.coords_memoria and direccion == st.session_state.dir_memoria:
             lat_f, lon_f = st.session_state.coords_memoria
             feedback = st.session_state.feedback_memoria
-        # 2. Usar el Buscador Inteligente si se tipeó una calle
         elif direccion:
             lat_f, lon_f, feedback = buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad)
 
@@ -258,7 +271,6 @@ with tabs[0]:
             
             df_ciudad["DIST_KM"] = df_ciudad.apply(lambda r: geodesic((lat_f, lon_f), (r["LAT"], r["LONG"])).km, axis=1)
             
-            # Buscador general
             if btn_buscar:
                 res_busqueda = df_ciudad[df_ciudad["DIST_KM"] <= radio_km].sort_values("DIST_KM")
                 if not res_busqueda.empty:
@@ -276,8 +288,6 @@ with tabs[0]:
                     )
                     
                     view = pdk.ViewState(latitude=lat_f, longitude=lon_f, zoom=14)
-                    
-                    # Capa Cafeterías (Caramelo claro, más chiquitos)
                     layer_cafes = pdk.Layer(
                         "ScatterplotLayer", 
                         res_busqueda, 
@@ -287,8 +297,6 @@ with tabs[0]:
                         radius_min_pixels=3, 
                         pickable=True
                     )
-                    
-                    # Capa Usuario (Punto azul brillante)
                     layer_usuario = pdk.Layer(
                         "ScatterplotLayer",
                         pd.DataFrame([{"LAT": lat_f, "LONG": lon_f}]),
@@ -298,12 +306,10 @@ with tabs[0]:
                         radius_min_pixels=6,
                         pickable=False
                     )
-                    
                     st.pydeck_chart(pdk.Deck(layers=[layer_cafes, layer_usuario], initial_view_state=view, tooltip={"text": "{CAFE}"}))
                 else: 
                     st.warning("No encontramos locales en este radio.")
             
-            # Botón recomendar
             elif btn_recomendar:
                 res_rec = df_ciudad[df_ciudad["DIST_KM"] <= 0.5]
                 if not res_rec.empty:
@@ -324,7 +330,7 @@ with tabs[0]:
                     st.warning("No tenés cafeterías a menos de 5 cuadras para recomendarte. ☹️ ¡Probá buscando locales en general!")
 
         else: 
-            st.error("El mapa no logró ubicar esta dirección. Verificá si está bien escrita o usá una intersección (Ej: Calle 12 y 54).")
+            st.error("El mapa no logró ubicar esta dirección. Verificá si está bien escrita o probá agregando 'Tolosa' o el nombre del barrio.")
 
 # --- TAB 2: TOSTADORES ---
 with tabs[1]:
