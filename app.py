@@ -6,6 +6,7 @@ import pydeck as pdk
 import requests
 from streamlit_js_eval import get_geolocation
 import random
+import urllib.parse  # <--- NUEVO: Para crear los mensajes de WhatsApp
 
 # =========================
 # CONFIG APP Y ESTILOS
@@ -16,7 +17,6 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     
-    /* Aplica la fuente SOLO a textos, evitando romper los iconos de Streamlit */
     html, body, h1, h2, h3, h4, h5, h6, p, label, span, div { 
         font-family: 'Inter', sans-serif; 
     }
@@ -66,6 +66,22 @@ st.markdown("""
         transition: background 0.3s;
     }
     .ig-btn:hover { background: #BE8C63; }
+    
+    /* NUEVO: Botón estilo WhatsApp */
+    .wpp-btn {
+        background: #25D366;
+        color: #FFFFFF !important;
+        text-align: center;
+        padding: 8px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.85rem;
+        margin-top: 15px;
+        display: block;
+        transition: background 0.3s;
+    }
+    .wpp-btn:hover { background: #128C7E; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -119,7 +135,7 @@ def get_geocoder():
 
 @st.cache_resource
 def get_osm_geocoder(): 
-    return Nominatim(user_agent="cafes_app_arg_v3", timeout=10)
+    return Nominatim(user_agent="cafes_app_arg_v4", timeout=10)
 
 def obtener_calle(lat, lon):
     try: 
@@ -144,7 +160,7 @@ def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
         
     dir_limpia = direccion.strip().lower()
     
-    # 1. Búsqueda exacta en la base de datos de Excel
+    # 1. Búsqueda exacta en la base de datos
     match_local = df_ciudad[df_ciudad["UBICACION"].str.lower().str.contains(dir_limpia, na=False)]
     if not match_local.empty:
         lat = match_local.iloc[0]["LAT"]
@@ -153,14 +169,12 @@ def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
         ubi = match_local.iloc[0]["UBICACION"]
         return lat, lon, f"{ubi} (Local: {nom})"
         
-    # Armamos variantes de búsqueda
     variantes_busqueda = [
         f"{direccion}, {ciudad_sel}, Argentina",
         f"{direccion}, Buenos Aires, Argentina",
         f"{direccion}, Argentina"
     ]
     
-    # 2. Satélite 1: ArcGIS
     geo = get_geocoder()
     for query in variantes_busqueda:
         try:
@@ -168,7 +182,6 @@ def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
             if res: return res.latitude, res.longitude, res.address
         except: pass
         
-    # 3. Satélite 2: OpenStreetMap
     geo_osm = get_osm_geocoder()
     for query in variantes_busqueda:
         try:
@@ -177,6 +190,12 @@ def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
         except: pass
         
     return None, None, None
+
+def generar_link_whatsapp(nombre, ubicacion, lat, lon):
+    map_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+    texto = f"¡Che! Vamos a tomar un café a {nombre} ☕. Queda en {ubicacion}. Mirá el mapa: {map_url}"
+    texto_codificado = urllib.parse.quote(texto)
+    return f"https://api.whatsapp.com/send?text={texto_codificado}"
 
 # =========================
 # SIDEBAR - TELEGRAM
@@ -220,7 +239,6 @@ with tabs[0]:
     ciudad_sel = st.selectbox("🏙️ Ciudad de búsqueda", list(GID_CAFES.keys()))
     df_ciudad = cargar_cafes(GID_CAFES[ciudad_sel])
     
-    # Textos de ejemplo dinámicos por ciudad
     placeholders = {
         "Mar del Plata": "Ej: Av. Colón 1500",
         "Buenos Aires": "Ej: Av. Santa Fe 3000, Palermo",
@@ -279,20 +297,23 @@ with tabs[0]:
                 if not res_busqueda.empty:
                     res_busqueda["CUADRAS"] = res_busqueda["DIST_KM"].apply(lambda km: calcular_cuadras(km, ciudad_sel))
                     res_busqueda["MAPS"] = res_busqueda.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
+                    
+                    # Generamos el link de WhatsApp fila por fila
+                    res_busqueda["WHATSAPP"] = res_busqueda.apply(lambda r: generar_link_whatsapp(r['CAFE'], r['UBICACION'], r['LAT'], r['LONG']), axis=1)
+                    
                     res_busqueda = res_busqueda.reset_index(drop=True)
                     
                     st.dataframe(
-                        res_busqueda[["CAFE", "UBICACION", "TOSTADOR", "CUADRAS", "MAPS"]], 
+                        res_busqueda[["CAFE", "UBICACION", "TOSTADOR", "CUADRAS", "MAPS", "WHATSAPP"]], 
                         use_container_width=True,
                         hide_index=True,
                         column_config={
-                            "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa")
+                            "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa"),
+                            "WHATSAPP": st.column_config.LinkColumn("WhatsApp", display_text="💬 Invitar")
                         }
                     )
                     
                     view = pdk.ViewState(latitude=lat_f, longitude=lon_f, zoom=14)
-                    
-                    # Capa Cafeterías
                     layer_cafes = pdk.Layer(
                         "ScatterplotLayer", 
                         res_busqueda, 
@@ -302,8 +323,6 @@ with tabs[0]:
                         radius_min_pixels=3, 
                         pickable=True
                     )
-                    
-                    # Capa Usuario
                     layer_usuario = pdk.Layer(
                         "ScatterplotLayer",
                         pd.DataFrame([{"LAT": lat_f, "LONG": lon_f}]),
@@ -313,7 +332,6 @@ with tabs[0]:
                         radius_min_pixels=6,
                         pickable=False
                     )
-                    
                     st.pydeck_chart(pdk.Deck(layers=[layer_cafes, layer_usuario], initial_view_state=view, tooltip={"text": "{CAFE}"}))
                 else: 
                     st.warning("No encontramos locales en este radio. ¡Probá ampliando el rango o verificá el punto detectado!")
@@ -324,6 +342,7 @@ with tabs[0]:
                     elegido = res_rec.sample(1).iloc[0]
                     dist_txt = calcular_cuadras(elegido['DIST_KM'], ciudad_sel)
                     map_link = f"https://www.google.com/maps/search/?api=1&query={elegido['LAT']},{elegido['LONG']}"
+                    wpp_link = generar_link_whatsapp(elegido['CAFE'], elegido['UBICACION'], elegido['LAT'], elegido['LONG'])
                     
                     st.markdown(f"""
                         <div class="tostador-card" style="border: 2px solid #BE8C63; text-align: center; max-width: 500px; margin: 0 auto;">
@@ -331,7 +350,11 @@ with tabs[0]:
                             <h2 style="color: #4B3832; margin-bottom: 5px;">{elegido['CAFE']}</h2>
                             <p style="font-size: 1.1rem; margin-bottom: 5px;">📍 {elegido['UBICACION']} <strong>({dist_txt})</strong></p>
                             <p style="color: #85746D; margin-bottom: 15px;">☕ Tostador: {elegido['TOSTADOR']}</p>
-                            <a class="ig-btn" href="{map_link}" target="_blank">📍 Llevame ahí</a>
+                            
+                            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+                                <a class="ig-btn" href="{map_link}" target="_blank" style="flex: 1; margin-top: 0;">📍 Llevame ahí</a>
+                                <a class="wpp-btn" href="{wpp_link}" target="_blank" style="flex: 1; margin-top: 0;">💬 Invitar por WhatsApp</a>
+                            </div>
                         </div>
                     """, unsafe_allow_html=True)
                 else:
@@ -394,6 +417,7 @@ with tabs[2]:
         resultado = df_nombres_filtrado[df_nombres_filtrado["CAFE"] == nombre_sel].copy()
         resultado = resultado.reset_index(drop=True)
         resultado["MAPS"] = resultado.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
+        resultado["WHATSAPP"] = resultado.apply(lambda r: generar_link_whatsapp(r['CAFE'], r['UBICACION'], r['LAT'], r['LONG']), axis=1)
         
         if len(resultado) > 1:
             st.success(f"Encontramos {len(resultado)} sucursales de **{nombre_sel}**")
@@ -401,11 +425,12 @@ with tabs[2]:
             st.success(f"Encontrado en {resultado['CIUDAD'].iloc[0]}")
             
         st.dataframe(
-            resultado[["CAFE", "UBICACION", "TOSTADOR", "CIUDAD", "MAPS"]], 
+            resultado[["CAFE", "UBICACION", "TOSTADOR", "CIUDAD", "MAPS", "WHATSAPP"]], 
             use_container_width=True,
             hide_index=True,
             column_config={
-                "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa")
+                "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa"),
+                "WHATSAPP": st.column_config.LinkColumn("WhatsApp", display_text="💬 Invitar")
             }
         )
 
