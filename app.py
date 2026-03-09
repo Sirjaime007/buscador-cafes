@@ -16,6 +16,7 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     
+    /* Aplica la fuente SOLO a textos, evitando romper los iconos de Streamlit */
     html, body, h1, h2, h3, h4, h5, h6, p, label, span, div { 
         font-family: 'Inter', sans-serif; 
     }
@@ -118,7 +119,7 @@ def get_geocoder():
 
 @st.cache_resource
 def get_osm_geocoder(): 
-    return Nominatim(user_agent="cafes_app_arg_v2", timeout=10)
+    return Nominatim(user_agent="cafes_app_arg_v3", timeout=10)
 
 def obtener_calle(lat, lon):
     try: 
@@ -152,7 +153,7 @@ def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
         ubi = match_local.iloc[0]["UBICACION"]
         return lat, lon, f"{ubi} (Local: {nom})"
         
-    # Armamos variantes de búsqueda para que no se maree con Tolosa/La Plata
+    # Armamos variantes de búsqueda
     variantes_busqueda = [
         f"{direccion}, {ciudad_sel}, Argentina",
         f"{direccion}, Buenos Aires, Argentina",
@@ -219,22 +220,29 @@ with tabs[0]:
     ciudad_sel = st.selectbox("🏙️ Ciudad de búsqueda", list(GID_CAFES.keys()))
     df_ciudad = cargar_cafes(GID_CAFES[ciudad_sel])
     
+    # Textos de ejemplo dinámicos por ciudad
+    placeholders = {
+        "Mar del Plata": "Ej: Av. Colón 1500",
+        "Buenos Aires": "Ej: Av. Santa Fe 3000, Palermo",
+        "La Plata": "Ej: Av 7 800, Tolosa",
+        "Córdoba": "Ej: Av. General Paz 150",
+        "Rosario": "Ej: Bulevar Oroño 500"
+    }
+    texto_ejemplo = placeholders.get(ciudad_sel, "Ej: San Martín 100")
+    
     if "dir_memoria" not in st.session_state:
         st.session_state.dir_memoria = ""
     if "coords_memoria" not in st.session_state:
         st.session_state.coords_memoria = None
-    if "feedback_memoria" not in st.session_state:
-        st.session_state.feedback_memoria = ""
 
     posicion_gps = get_geolocation()
     col_input, col_gps = st.columns([3, 1])
     
     with col_input:
-        direccion = st.text_input("📍 Ingresá tu dirección", value=st.session_state.dir_memoria, placeholder="Ej: Av 7 800, Tolosa")
+        direccion = st.text_input("📍 Ingresá tu dirección (Escribí y tocá Enter)", value=st.session_state.dir_memoria, placeholder=texto_ejemplo)
         if direccion != st.session_state.dir_memoria:
             st.session_state.dir_memoria = direccion
             st.session_state.coords_memoria = None
-            st.session_state.feedback_memoria = ""
 
     with col_gps:
         st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
@@ -245,7 +253,6 @@ with tabs[0]:
                 st.session_state.coords_memoria = (lat_gps, lon_gps)
                 calle_gps = obtener_calle(lat_gps, lon_gps)
                 st.session_state.dir_memoria = calle_gps
-                st.session_state.feedback_memoria = calle_gps
                 st.rerun()
             else:
                 st.warning("Esperando señal GPS o no diste permiso.")
@@ -257,20 +264,14 @@ with tabs[0]:
     btn_recomendar = col_btn_rec.button("🎯 Recomendar café", use_container_width=True)
     
     if btn_buscar or btn_recomendar:
-        lat_f, lon_f, feedback = None, None, ""
+        lat_f, lon_f = None, None
         
         if st.session_state.coords_memoria and direccion == st.session_state.dir_memoria:
             lat_f, lon_f = st.session_state.coords_memoria
-            feedback = st.session_state.feedback_memoria
         elif direccion:
-            # Spinner visual de carga
-            with st.spinner("🛰️ Conectando con el satélite..."):
-                lat_f, lon_f, feedback = buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad)
+            lat_f, lon_f, _ = buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad)
 
         if lat_f:
-            # Cartel de confirmación de la dirección detectada
-            st.info(f"📍 **Punto exacto detectado por satélite:**\n{feedback}")
-            
             df_ciudad["DIST_KM"] = df_ciudad.apply(lambda r: geodesic((lat_f, lon_f), (r["LAT"], r["LONG"])).km, axis=1)
             
             if btn_buscar:
@@ -337,7 +338,7 @@ with tabs[0]:
                     st.warning("No tenés cafeterías a menos de 5 cuadras para recomendarte. ☹️ ¡Probá buscando locales en general!")
 
         else: 
-            st.error("❌ El satélite no pudo encontrar esa dirección. Asegurate de incluir el barrio (Ej: 'Av 7 800, Tolosa').")
+            st.error("❌ El satélite no pudo encontrar esa dirección. Asegurate de incluir el barrio o usar una calle principal.")
 
 # --- TAB 2: TOSTADORES ---
 with tabs[1]:
