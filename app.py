@@ -16,7 +16,6 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     
-    /* Aplica la fuente SOLO a textos, evitando romper los iconos de Streamlit */
     html, body, h1, h2, h3, h4, h5, h6, p, label, span, div { 
         font-family: 'Inter', sans-serif; 
     }
@@ -26,7 +25,6 @@ st.markdown("""
     
     .stApp { background-color: #FDF8F5; }
     
-    /* Contador Minimalista */
     .main-counter {
         background-color: #4B3832;
         color: #FDF8F5;
@@ -39,7 +37,6 @@ st.markdown("""
     .main-counter h1 { font-weight: 600; font-size: 3.2rem; margin: 0; color: #BE8C63; }
     .main-counter p { font-weight: 300; font-size: 1.1rem; opacity: 0.9; margin: 0; }
 
-    /* Tarjetas */
     .tostador-card {
         background: #FFFFFF;
         border: 1px solid #EADBC8;
@@ -54,7 +51,6 @@ st.markdown("""
     .tostador-title { color: #4B3832; font-weight: 600; font-size: 1.15rem; margin-bottom: 5px; }
     .tostador-desc { font-size: 0.9rem; color: #85746D; margin-top: 8px; line-height: 1.4; }
     
-    /* Botones minimalistas */
     .ig-btn {
         background: #4B3832;
         color: #FDF8F5 !important;
@@ -69,16 +65,6 @@ st.markdown("""
         transition: background 0.3s;
     }
     .ig-btn:hover { background: #BE8C63; }
-    
-    /* Caja de validación de satélite */
-    .sat-box {
-        padding: 15px; 
-        background-color: #FFFFFF; 
-        border: 1px solid #BE8C63; 
-        border-radius: 8px; 
-        margin-bottom: 15px;
-        box-shadow: 0 2px 5px rgba(190, 140, 99, 0.1);
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -132,7 +118,7 @@ def get_geocoder():
 
 @st.cache_resource
 def get_osm_geocoder(): 
-    return Nominatim(user_agent="cafes_arg_app", timeout=10)
+    return Nominatim(user_agent="cafes_app_arg_v2", timeout=10)
 
 def obtener_calle(lat, lon):
     try: 
@@ -151,30 +137,45 @@ def calcular_cuadras(km, ciudad):
     else:
         return f"{cuadras} cuadras"
 
-def obtener_candidatos_direccion(direccion, ciudad_sel):
-    """Obtiene hasta 5 opciones exactas usando dos satélites distintos"""
-    candidatos = []
-    query = f"{direccion}, {ciudad_sel}, Argentina"
+def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
+    if not direccion or direccion.strip() == "":
+        return None, None, None
+        
+    dir_limpia = direccion.strip().lower()
     
-    # 1er Satélite: ArcGIS
-    try:
-        res_arc = get_geocoder().geocode(query, exactly_one=False, maxRows=4)
-        if res_arc:
-            for r in res_arc:
-                if not any(c["address"] == r.address for c in candidatos):
-                    candidatos.append({"address": r.address, "lat": r.latitude, "lon": r.longitude})
-    except: pass
+    # 1. Búsqueda exacta en la base de datos de Excel
+    match_local = df_ciudad[df_ciudad["UBICACION"].str.lower().str.contains(dir_limpia, na=False)]
+    if not match_local.empty:
+        lat = match_local.iloc[0]["LAT"]
+        lon = match_local.iloc[0]["LONG"]
+        nom = match_local.iloc[0]["CAFE"]
+        ubi = match_local.iloc[0]["UBICACION"]
+        return lat, lon, f"{ubi} (Local: {nom})"
         
-    # 2do Satélite: OpenStreetMap (Ideal para La Plata/Tolosa)
-    try:
-        res_osm = get_osm_geocoder().geocode(query, exactly_one=False, limit=4)
-        if res_osm:
-            for r in res_osm:
-                if not any(c["address"] == r.address for c in candidatos):
-                    candidatos.append({"address": r.address, "lat": r.latitude, "lon": r.longitude})
-    except: pass
+    # Armamos variantes de búsqueda para que no se maree con Tolosa/La Plata
+    variantes_busqueda = [
+        f"{direccion}, {ciudad_sel}, Argentina",
+        f"{direccion}, Buenos Aires, Argentina",
+        f"{direccion}, Argentina"
+    ]
+    
+    # 2. Satélite 1: ArcGIS
+    geo = get_geocoder()
+    for query in variantes_busqueda:
+        try:
+            res = geo.geocode(query)
+            if res: return res.latitude, res.longitude, res.address
+        except: pass
         
-    return candidatos[:5]
+    # 3. Satélite 2: OpenStreetMap
+    geo_osm = get_osm_geocoder()
+    for query in variantes_busqueda:
+        try:
+            res = geo_osm.geocode(query)
+            if res: return res.latitude, res.longitude, res.address
+        except: pass
+        
+    return None, None, None
 
 # =========================
 # SIDEBAR - TELEGRAM
@@ -218,20 +219,22 @@ with tabs[0]:
     ciudad_sel = st.selectbox("🏙️ Ciudad de búsqueda", list(GID_CAFES.keys()))
     df_ciudad = cargar_cafes(GID_CAFES[ciudad_sel])
     
-    # Inicialización de memorias
-    for key in ["dir_memoria", "feedback_memoria", "last_searched_dir"]:
-        if key not in st.session_state:
-            st.session_state[key] = ""
+    if "dir_memoria" not in st.session_state:
+        st.session_state.dir_memoria = ""
     if "coords_memoria" not in st.session_state:
         st.session_state.coords_memoria = None
-    if "candidatos_geo" not in st.session_state:
-        st.session_state.candidatos_geo = []
+    if "feedback_memoria" not in st.session_state:
+        st.session_state.feedback_memoria = ""
 
     posicion_gps = get_geolocation()
     col_input, col_gps = st.columns([3, 1])
     
     with col_input:
-        direccion = st.text_input("📍 Ingresá tu dirección (Escribí y tocá Enter)", value=st.session_state.dir_memoria, placeholder="Ej: Av 7 800, Tolosa")
+        direccion = st.text_input("📍 Ingresá tu dirección", value=st.session_state.dir_memoria, placeholder="Ej: Av 7 800, Tolosa")
+        if direccion != st.session_state.dir_memoria:
+            st.session_state.dir_memoria = direccion
+            st.session_state.coords_memoria = None
+            st.session_state.feedback_memoria = ""
 
     with col_gps:
         st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
@@ -241,34 +244,11 @@ with tabs[0]:
                 lon_gps = posicion_gps['coords']['longitude']
                 st.session_state.coords_memoria = (lat_gps, lon_gps)
                 calle_gps = obtener_calle(lat_gps, lon_gps)
-                
-                # Actualizar memorias y limpiar satélite
                 st.session_state.dir_memoria = calle_gps
                 st.session_state.feedback_memoria = calle_gps
-                st.session_state.last_searched_dir = calle_gps
-                st.session_state.candidatos_geo = [] 
                 st.rerun()
             else:
                 st.warning("Esperando señal GPS o no diste permiso.")
-
-    # LÓGICA DE VALIDACIÓN POR SATÉLITE
-    if direccion and direccion != st.session_state.last_searched_dir:
-        # El usuario escribió una dirección nueva, buscamos las opciones
-        st.session_state.candidatos_geo = obtener_candidatos_direccion(direccion, ciudad_sel)
-        st.session_state.last_searched_dir = direccion
-        st.session_state.coords_memoria = None
-
-    # MOSTRAR CAJA DE OPCIONES DE SATÉLITE
-    if st.session_state.candidatos_geo:
-        st.markdown("<div class='sat-box'>", unsafe_allow_html=True)
-        opciones_nombres = [c["address"] for c in st.session_state.candidatos_geo]
-        seleccion_satelite = st.selectbox("🛰️ Satélite encontró estas opciones. Elegí la correcta para máxima precisión:", opciones_nombres)
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Guardamos la opción elegida
-        idx = opciones_nombres.index(seleccion_satelite)
-        st.session_state.coords_memoria = (st.session_state.candidatos_geo[idx]["lat"], st.session_state.candidatos_geo[idx]["lon"])
-        st.session_state.feedback_memoria = seleccion_satelite
 
     radio_km = st.slider("📏 Radio de búsqueda (km)", 0.5, 5.0, 1.5)
     
@@ -279,12 +259,17 @@ with tabs[0]:
     if btn_buscar or btn_recomendar:
         lat_f, lon_f, feedback = None, None, ""
         
-        if st.session_state.coords_memoria:
+        if st.session_state.coords_memoria and direccion == st.session_state.dir_memoria:
             lat_f, lon_f = st.session_state.coords_memoria
             feedback = st.session_state.feedback_memoria
+        elif direccion:
+            # Spinner visual de carga
+            with st.spinner("🛰️ Conectando con el satélite..."):
+                lat_f, lon_f, feedback = buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad)
 
         if lat_f:
-            st.success(f"📍 Buscando centro en: **{feedback}**")
+            # Cartel de confirmación de la dirección detectada
+            st.info(f"📍 **Punto exacto detectado por satélite:**\n{feedback}")
             
             df_ciudad["DIST_KM"] = df_ciudad.apply(lambda r: geodesic((lat_f, lon_f), (r["LAT"], r["LONG"])).km, axis=1)
             
@@ -304,10 +289,9 @@ with tabs[0]:
                         }
                     )
                     
-                    # MAPA MULTICAPA
                     view = pdk.ViewState(latitude=lat_f, longitude=lon_f, zoom=14)
                     
-                    # Capa 1: Cafeterías (Chiquitos, marrones claros)
+                    # Capa Cafeterías
                     layer_cafes = pdk.Layer(
                         "ScatterplotLayer", 
                         res_busqueda, 
@@ -318,7 +302,7 @@ with tabs[0]:
                         pickable=True
                     )
                     
-                    # Capa 2: Usuario (Grande, azul brillante)
+                    # Capa Usuario
                     layer_usuario = pdk.Layer(
                         "ScatterplotLayer",
                         pd.DataFrame([{"LAT": lat_f, "LONG": lon_f}]),
@@ -331,7 +315,7 @@ with tabs[0]:
                     
                     st.pydeck_chart(pdk.Deck(layers=[layer_cafes, layer_usuario], initial_view_state=view, tooltip={"text": "{CAFE}"}))
                 else: 
-                    st.warning("No encontramos locales en este radio.")
+                    st.warning("No encontramos locales en este radio. ¡Probá ampliando el rango o verificá el punto detectado!")
             
             elif btn_recomendar:
                 res_rec = df_ciudad[df_ciudad["DIST_KM"] <= 0.5]
@@ -353,7 +337,7 @@ with tabs[0]:
                     st.warning("No tenés cafeterías a menos de 5 cuadras para recomendarte. ☹️ ¡Probá buscando locales en general!")
 
         else: 
-            st.error("Por favor, validá tu dirección eligiendo una opción del menú satelital o usando el GPS.")
+            st.error("❌ El satélite no pudo encontrar esa dirección. Asegurate de incluir el barrio (Ej: 'Av 7 800, Tolosa').")
 
 # --- TAB 2: TOSTADORES ---
 with tabs[1]:
