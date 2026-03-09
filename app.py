@@ -16,7 +16,6 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     
-    /* Aplica la fuente SOLO a textos, evitando romper los iconos de Streamlit */
     html, body, h1, h2, h3, h4, h5, h6, p, label, span { 
         font-family: 'Inter', sans-serif; 
     }
@@ -134,6 +133,36 @@ def calcular_cuadras(km, ciudad):
     else:
         return f"{cuadras} cuadras"
 
+def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
+    """
+    Busca primero en la base de datos local para evitar los problemas de La Plata.
+    Si no encuentra, recurre a ArcGIS.
+    """
+    if not direccion or direccion.strip() == "":
+        return None, None, None
+        
+    dir_limpia = direccion.strip().lower()
+    
+    # 1. Buscar en la base local (Tu Excel)
+    match_local = df_ciudad[df_ciudad["UBICACION"].str.lower().str.contains(dir_limpia, na=False)]
+    if not match_local.empty:
+        lat = match_local.iloc[0]["LAT"]
+        lon = match_local.iloc[0]["LONG"]
+        nom = match_local.iloc[0]["CAFE"]
+        ubi = match_local.iloc[0]["UBICACION"]
+        return lat, lon, f"{ubi} (Punto exacto de {nom})"
+        
+    # 2. Si no es un café, buscamos vía satélite (ArcGIS)
+    try:
+        geo = get_geocoder()
+        res = geo.geocode(f"{direccion}, {ciudad_sel}, Buenos Aires, Argentina")
+        if res:
+            return res.latitude, res.longitude, res.address
+    except:
+        pass
+        
+    return None, None, None
+
 # =========================
 # SIDEBAR - TELEGRAM
 # =========================
@@ -180,6 +209,8 @@ with tabs[0]:
         st.session_state.dir_memoria = ""
     if "coords_memoria" not in st.session_state:
         st.session_state.coords_memoria = None
+    if "feedback_memoria" not in st.session_state:
+        st.session_state.feedback_memoria = ""
 
     posicion_gps = get_geolocation()
     col_input, col_gps = st.columns([3, 1])
@@ -189,6 +220,7 @@ with tabs[0]:
         if direccion != st.session_state.dir_memoria:
             st.session_state.dir_memoria = direccion
             st.session_state.coords_memoria = None
+            st.session_state.feedback_memoria = ""
 
     with col_gps:
         st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
@@ -197,7 +229,9 @@ with tabs[0]:
                 lat_gps = posicion_gps['coords']['latitude']
                 lon_gps = posicion_gps['coords']['longitude']
                 st.session_state.coords_memoria = (lat_gps, lon_gps)
-                st.session_state.dir_memoria = obtener_calle(lat_gps, lon_gps)
+                calle_gps = obtener_calle(lat_gps, lon_gps)
+                st.session_state.dir_memoria = calle_gps
+                st.session_state.feedback_memoria = calle_gps
                 st.rerun()
             else:
                 st.warning("Esperando señal GPS o no diste permiso. Aceptá e intentá de nuevo.")
@@ -209,19 +243,19 @@ with tabs[0]:
     btn_recomendar = col_btn_rec.button("🎯 Recomendar café", use_container_width=True)
     
     if btn_buscar or btn_recomendar:
-        lat_f, lon_f = None, None
+        lat_f, lon_f, feedback = None, None, ""
         
+        # 1. Reusar memoria de GPS si existe
         if st.session_state.coords_memoria and direccion == st.session_state.dir_memoria:
             lat_f, lon_f = st.session_state.coords_memoria
+            feedback = st.session_state.feedback_memoria
+        # 2. Usar el Buscador Inteligente si se tipeó una calle
         elif direccion:
-            try:
-                res = get_geocoder().geocode(f"{direccion}, {ciudad_sel}, Argentina")
-                if res: 
-                    lat_f, lon_f = res.latitude, res.longitude
-            except: 
-                pass
+            lat_f, lon_f, feedback = buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad)
 
         if lat_f:
+            st.success(f"📍 Buscando centro en: **{feedback}**")
+            
             df_ciudad["DIST_KM"] = df_ciudad.apply(lambda r: geodesic((lat_f, lon_f), (r["LAT"], r["LONG"])).km, axis=1)
             
             # Buscador general
@@ -230,7 +264,6 @@ with tabs[0]:
                 if not res_busqueda.empty:
                     res_busqueda["CUADRAS"] = res_busqueda["DIST_KM"].apply(lambda km: calcular_cuadras(km, ciudad_sel))
                     res_busqueda["MAPS"] = res_busqueda.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
-                    
                     res_busqueda = res_busqueda.reset_index(drop=True)
                     
                     st.dataframe(
@@ -242,28 +275,27 @@ with tabs[0]:
                         }
                     )
                     
-                    # MAPA: Dos capas diferentes
                     view = pdk.ViewState(latitude=lat_f, longitude=lon_f, zoom=14)
                     
-                    # Capa 1: Los cafés (más chicos y claros)
+                    # Capa Cafeterías (Caramelo claro, más chiquitos)
                     layer_cafes = pdk.Layer(
                         "ScatterplotLayer", 
                         res_busqueda, 
                         get_position=["LONG", "LAT"],
-                        get_color=[190, 130, 90, 220], # Marrón/caramelo más claro
-                        get_radius=25,                 # Más chiquitos
+                        get_color=[190, 130, 90, 220], 
+                        get_radius=25, 
                         radius_min_pixels=3, 
                         pickable=True
                     )
                     
-                    # Capa 2: La ubicación del usuario (Azul brillante y un poco más grande)
+                    # Capa Usuario (Punto azul brillante)
                     layer_usuario = pdk.Layer(
                         "ScatterplotLayer",
                         pd.DataFrame([{"LAT": lat_f, "LONG": lon_f}]),
                         get_position=["LONG", "LAT"],
-                        get_color=[30, 136, 229, 255], # Azul claro/brillante
+                        get_color=[30, 136, 229, 255],
                         get_radius=40,
-                        radius_min_pixels=5,
+                        radius_min_pixels=6,
                         pickable=False
                     )
                     
@@ -292,7 +324,7 @@ with tabs[0]:
                     st.warning("No tenés cafeterías a menos de 5 cuadras para recomendarte. ☹️ ¡Probá buscando locales en general!")
 
         else: 
-            st.error("No pudimos detectar la ubicación. Verificá la dirección o usá el botón de GPS.")
+            st.error("El mapa no logró ubicar esta dirección. Verificá si está bien escrita o usá una intersección (Ej: Calle 12 y 54).")
 
 # --- TAB 2: TOSTADORES ---
 with tabs[1]:
@@ -345,11 +377,8 @@ with tabs[2]:
     nombre_sel = st.selectbox("☕ Seleccioná o escribí el nombre del café", [""] + lista_nombres_filtrada)
     
     if nombre_sel:
-        # Usamos .copy() para evitar advertencias de pandas
         resultado = df_nombres_filtrado[df_nombres_filtrado["CAFE"] == nombre_sel].copy()
         resultado = resultado.reset_index(drop=True)
-        
-        # Le agregamos la columna de MAPS igual que en la pestaña 1
         resultado["MAPS"] = resultado.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
         
         if len(resultado) > 1:
