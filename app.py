@@ -6,7 +6,7 @@ import pydeck as pdk
 import requests
 from streamlit_js_eval import get_geolocation
 import random
-import urllib.parse  # <--- NUEVO: Para crear los mensajes de WhatsApp
+import urllib.parse
 
 # =========================
 # CONFIG APP Y ESTILOS
@@ -67,7 +67,6 @@ st.markdown("""
     }
     .ig-btn:hover { background: #BE8C63; }
     
-    /* NUEVO: Botón estilo WhatsApp */
     .wpp-btn {
         background: #25D366;
         color: #FFFFFF !important;
@@ -160,7 +159,6 @@ def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
         
     dir_limpia = direccion.strip().lower()
     
-    # 1. Búsqueda exacta en la base de datos
     match_local = df_ciudad[df_ciudad["UBICACION"].str.lower().str.contains(dir_limpia, na=False)]
     if not match_local.empty:
         lat = match_local.iloc[0]["LAT"]
@@ -192,8 +190,11 @@ def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
     return None, None, None
 
 def generar_link_whatsapp(nombre, ubicacion, lat, lon):
+    # Genera el link directo de Google Maps
     map_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
-    texto = f"¡Che! Vamos a tomar un café a {nombre} ☕. Queda en {ubicacion}. Mirá el mapa: {map_url}"
+    # Arma el texto pedido por el usuario
+    texto = f"Vamos a tomar un cafe a {nombre}, queda en {ubicacion}: {map_url}"
+    # Codifica los espacios y caracteres especiales para que WhatsApp los entienda
     texto_codificado = urllib.parse.quote(texto)
     return f"https://api.whatsapp.com/send?text={texto_codificado}"
 
@@ -298,7 +299,7 @@ with tabs[0]:
                     res_busqueda["CUADRAS"] = res_busqueda["DIST_KM"].apply(lambda km: calcular_cuadras(km, ciudad_sel))
                     res_busqueda["MAPS"] = res_busqueda.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
                     
-                    # Generamos el link de WhatsApp fila por fila
+                    # Generamos el link de WhatsApp con el nuevo texto
                     res_busqueda["WHATSAPP"] = res_busqueda.apply(lambda r: generar_link_whatsapp(r['CAFE'], r['UBICACION'], r['LAT'], r['LONG']), axis=1)
                     
                     res_busqueda = res_busqueda.reset_index(drop=True)
@@ -342,6 +343,8 @@ with tabs[0]:
                     elegido = res_rec.sample(1).iloc[0]
                     dist_txt = calcular_cuadras(elegido['DIST_KM'], ciudad_sel)
                     map_link = f"https://www.google.com/maps/search/?api=1&query={elegido['LAT']},{elegido['LONG']}"
+                    
+                    # Usa la misma función actualizada para la recomendación
                     wpp_link = generar_link_whatsapp(elegido['CAFE'], elegido['UBICACION'], elegido['LAT'], elegido['LONG'])
                     
                     st.markdown(f"""
