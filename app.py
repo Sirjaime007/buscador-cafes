@@ -16,12 +16,9 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     
-    /* Aplica la fuente a textos normales, pero respeta los iconos de Streamlit */
-    html, body, h1, h2, h3, h4, h5, h6, p, label, div { 
+    /* Aplica la fuente SOLO a textos, evitando romper los iconos de Streamlit */
+    html, body, h1, h2, h3, h4, h5, h6, p, label, span { 
         font-family: 'Inter', sans-serif; 
-    }
-    .material-symbols-rounded, .material-icons {
-        font-family: 'Material Symbols Rounded' !important;
     }
     
     .stApp { background-color: #FDF8F5; }
@@ -196,14 +193,14 @@ with tabs[0]:
     with col_gps:
         st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
         if st.button("📍 Usar mi ubicación", use_container_width=True):
-            if posicion_gps:
+            if posicion_gps and 'coords' in posicion_gps:
                 lat_gps = posicion_gps['coords']['latitude']
                 lon_gps = posicion_gps['coords']['longitude']
                 st.session_state.coords_memoria = (lat_gps, lon_gps)
                 st.session_state.dir_memoria = obtener_calle(lat_gps, lon_gps)
                 st.rerun()
             else:
-                st.warning("Activá el GPS del navegador.")
+                st.warning("Esperando señal GPS o no diste permiso. Aceptá e intentá de nuevo.")
 
     radio_km = st.slider("📏 Radio de búsqueda (km)", 0.5, 5.0, 1.5)
     
@@ -234,6 +231,8 @@ with tabs[0]:
                     res_busqueda["CUADRAS"] = res_busqueda["DIST_KM"].apply(lambda km: calcular_cuadras(km, ciudad_sel))
                     res_busqueda["MAPS"] = res_busqueda.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
                     
+                    res_busqueda = res_busqueda.reset_index(drop=True)
+                    
                     st.dataframe(
                         res_busqueda[["CAFE", "UBICACION", "TOSTADOR", "CUADRAS", "MAPS"]], 
                         use_container_width=True,
@@ -243,17 +242,32 @@ with tabs[0]:
                         }
                     )
                     
+                    # MAPA: Dos capas diferentes
                     view = pdk.ViewState(latitude=lat_f, longitude=lon_f, zoom=14)
-                    layer = pdk.Layer(
+                    
+                    # Capa 1: Los cafés (más chicos y claros)
+                    layer_cafes = pdk.Layer(
                         "ScatterplotLayer", 
                         res_busqueda, 
                         get_position=["LONG", "LAT"],
-                        get_color=[75, 56, 50, 200], 
-                        get_radius=40, 
-                        radius_min_pixels=4, 
+                        get_color=[190, 130, 90, 220], # Marrón/caramelo más claro
+                        get_radius=25,                 # Más chiquitos
+                        radius_min_pixels=3, 
                         pickable=True
                     )
-                    st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view, tooltip={"text": "{CAFE}"}))
+                    
+                    # Capa 2: La ubicación del usuario (Azul brillante y un poco más grande)
+                    layer_usuario = pdk.Layer(
+                        "ScatterplotLayer",
+                        pd.DataFrame([{"LAT": lat_f, "LONG": lon_f}]),
+                        get_position=["LONG", "LAT"],
+                        get_color=[30, 136, 229, 255], # Azul claro/brillante
+                        get_radius=40,
+                        radius_min_pixels=5,
+                        pickable=False
+                    )
+                    
+                    st.pydeck_chart(pdk.Deck(layers=[layer_cafes, layer_usuario], initial_view_state=view, tooltip={"text": "{CAFE}"}))
                 else: 
                     st.warning("No encontramos locales en este radio.")
             
@@ -275,7 +289,7 @@ with tabs[0]:
                         </div>
                     """, unsafe_allow_html=True)
                 else:
-                    st.warning("No tenés cafeterías a menos de 500 metros para recomendarte ahora mismo. ☹️ ¡Probá ampliando el radio de búsqueda normal!")
+                    st.warning("No tenés cafeterías a menos de 5 cuadras para recomendarte. ☹️ ¡Probá buscando locales en general!")
 
         else: 
             st.error("No pudimos detectar la ubicación. Verificá la dirección o usá el botón de GPS.")
@@ -307,12 +321,11 @@ with tabs[1]:
 with tabs[2]:
     st.subheader("🔍 Buscador inteligente")
     
-    # 1. Armamos las opciones del filtro con sus contadores
     total_cafeterias = len(df_total)
     texto_todas = f"Todas ({total_cafeterias})"
     
     opciones_filtro_ciudad = [texto_todas]
-    mapa_filtro_ciudad = {texto_todas: "Todas"} # Diccionario para saber qué eligió
+    mapa_filtro_ciudad = {texto_todas: "Todas"}
     
     for c in sorted(df_total["CIUDAD"].dropna().unique()):
         cantidad = len(df_total[df_total["CIUDAD"] == c])
@@ -320,33 +333,37 @@ with tabs[2]:
         opciones_filtro_ciudad.append(texto_opcion)
         mapa_filtro_ciudad[texto_opcion] = c
         
-    # 2. Mostramos el selector de ciudad
     ciudad_filtro_sel = st.selectbox("🏙️ Filtrar lista por ciudad", opciones_filtro_ciudad)
     ciudad_real_elegida = mapa_filtro_ciudad[ciudad_filtro_sel]
     
-    # 3. Filtramos la base de datos según la ciudad (o dejamos todas)
     if ciudad_real_elegida == "Todas":
         df_nombres_filtrado = df_total
     else:
         df_nombres_filtrado = df_total[df_total["CIUDAD"] == ciudad_real_elegida]
         
-    # 4. Mostramos el selector de nombres solo con los cafés de esa ciudad
     lista_nombres_filtrada = sorted(df_nombres_filtrado["CAFE"].dropna().unique())
     nombre_sel = st.selectbox("☕ Seleccioná o escribí el nombre del café", [""] + lista_nombres_filtrada)
     
     if nombre_sel:
-        resultado = df_nombres_filtrado[df_nombres_filtrado["CAFE"] == nombre_sel]
+        # Usamos .copy() para evitar advertencias de pandas
+        resultado = df_nombres_filtrado[df_nombres_filtrado["CAFE"] == nombre_sel].copy()
+        resultado = resultado.reset_index(drop=True)
         
-        # Si la cadena tiene sucursales, avisamos
+        # Le agregamos la columna de MAPS igual que en la pestaña 1
+        resultado["MAPS"] = resultado.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
+        
         if len(resultado) > 1:
             st.success(f"Encontramos {len(resultado)} sucursales de **{nombre_sel}**")
         else:
             st.success(f"Encontrado en {resultado['CIUDAD'].iloc[0]}")
             
         st.dataframe(
-            resultado[["CAFE", "UBICACION", "TOSTADOR", "CIUDAD"]], 
+            resultado[["CAFE", "UBICACION", "TOSTADOR", "CIUDAD", "MAPS"]], 
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
+            column_config={
+                "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa")
+            }
         )
 
 # --- TAB 4: MAPA FEDERAL ---
