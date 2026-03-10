@@ -103,6 +103,11 @@ def cargar_cafes(gid):
         df = pd.read_csv(sheet_url(gid), dtype=str)
         df["LAT"] = pd.to_numeric(df["LAT"].str.replace(",", "."), errors="coerce")
         df["LONG"] = pd.to_numeric(df["LONG"].str.replace(",", "."), errors="coerce")
+        
+        # Escudo protector por si todavía no creaste la columna INSTAGRAM
+        if "INSTAGRAM" not in df.columns:
+            df["INSTAGRAM"] = ""
+            
         return df.dropna(subset=["LAT", "LONG"])
     except: 
         return pd.DataFrame()
@@ -190,11 +195,8 @@ def buscar_coordenadas_inteligente(direccion, ciudad_sel, df_ciudad):
     return None, None, None
 
 def generar_link_whatsapp(nombre, ubicacion, lat, lon):
-    # Genera el link directo de Google Maps
     map_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
-    # Arma el texto pedido por el usuario
     texto = f"Vamos a tomar un cafe a {nombre}, queda en {ubicacion}: {map_url}"
-    # Codifica los espacios y caracteres especiales para que WhatsApp los entienda
     texto_codificado = urllib.parse.quote(texto)
     return f"https://api.whatsapp.com/send?text={texto_codificado}"
 
@@ -299,16 +301,17 @@ with tabs[0]:
                     res_busqueda["CUADRAS"] = res_busqueda["DIST_KM"].apply(lambda km: calcular_cuadras(km, ciudad_sel))
                     res_busqueda["MAPS"] = res_busqueda.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
                     
-                    # Generamos el link de WhatsApp con el nuevo texto
                     res_busqueda["WHATSAPP"] = res_busqueda.apply(lambda r: generar_link_whatsapp(r['CAFE'], r['UBICACION'], r['LAT'], r['LONG']), axis=1)
                     
                     res_busqueda = res_busqueda.reset_index(drop=True)
                     
+                    # AQUÍ SE REEMPLAZA TOSTADOR POR INSTAGRAM
                     st.dataframe(
-                        res_busqueda[["CAFE", "UBICACION", "TOSTADOR", "CUADRAS", "MAPS", "WHATSAPP"]], 
+                        res_busqueda[["CAFE", "UBICACION", "INSTAGRAM", "CUADRAS", "MAPS", "WHATSAPP"]], 
                         use_container_width=True,
                         hide_index=True,
                         column_config={
+                            "INSTAGRAM": st.column_config.LinkColumn("Instagram", display_text="📱 Ver Perfil"),
                             "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa"),
                             "WHATSAPP": st.column_config.LinkColumn("WhatsApp", display_text="💬 Invitar")
                         }
@@ -343,20 +346,20 @@ with tabs[0]:
                     elegido = res_rec.sample(1).iloc[0]
                     dist_txt = calcular_cuadras(elegido['DIST_KM'], ciudad_sel)
                     map_link = f"https://www.google.com/maps/search/?api=1&query={elegido['LAT']},{elegido['LONG']}"
-                    
-                    # Usa la misma función actualizada para la recomendación
                     wpp_link = generar_link_whatsapp(elegido['CAFE'], elegido['UBICACION'], elegido['LAT'], elegido['LONG'])
+                    ig_link = elegido.get('INSTAGRAM', '#')
                     
+                    # AQUÍ SE REEMPLAZA TOSTADOR POR EL BOTÓN DE INSTAGRAM EN LA TARJETA
                     st.markdown(f"""
                         <div class="tostador-card" style="border: 2px solid #BE8C63; text-align: center; max-width: 500px; margin: 0 auto;">
                             <h3 style="color: #BE8C63; margin-bottom: 15px;">🎯 Recomendación del momento</h3>
                             <h2 style="color: #4B3832; margin-bottom: 5px;">{elegido['CAFE']}</h2>
-                            <p style="font-size: 1.1rem; margin-bottom: 5px;">📍 {elegido['UBICACION']} <strong>({dist_txt})</strong></p>
-                            <p style="color: #85746D; margin-bottom: 15px;">☕ Tostador: {elegido['TOSTADOR']}</p>
+                            <p style="font-size: 1.1rem; margin-bottom: 15px;">📍 {elegido['UBICACION']} <strong>({dist_txt})</strong></p>
                             
-                            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
-                                <a class="ig-btn" href="{map_link}" target="_blank" style="flex: 1; margin-top: 0;">📍 Llevame ahí</a>
-                                <a class="wpp-btn" href="{wpp_link}" target="_blank" style="flex: 1; margin-top: 0;">💬 Invitar por WhatsApp</a>
+                            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px; flex-wrap: wrap;">
+                                <a class="ig-btn" href="{ig_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">📱 Instagram</a>
+                                <a class="ig-btn" href="{map_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">📍 Llevame ahí</a>
+                                <a class="wpp-btn" href="{wpp_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">💬 Invitar</a>
                             </div>
                         </div>
                     """, unsafe_allow_html=True)
@@ -427,11 +430,13 @@ with tabs[2]:
         else:
             st.success(f"Encontrado en {resultado['CIUDAD'].iloc[0]}")
             
+        # AQUÍ SE REEMPLAZA TOSTADOR POR INSTAGRAM
         st.dataframe(
-            resultado[["CAFE", "UBICACION", "TOSTADOR", "CIUDAD", "MAPS", "WHATSAPP"]], 
+            resultado[["CAFE", "UBICACION", "INSTAGRAM", "CIUDAD", "MAPS", "WHATSAPP"]], 
             use_container_width=True,
             hide_index=True,
             column_config={
+                "INSTAGRAM": st.column_config.LinkColumn("Instagram", display_text="📱 Ver Perfil"),
                 "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa"),
                 "WHATSAPP": st.column_config.LinkColumn("WhatsApp", display_text="💬 Invitar")
             }
