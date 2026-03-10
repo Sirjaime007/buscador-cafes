@@ -139,7 +139,7 @@ def get_geocoder():
 
 @st.cache_resource
 def get_osm_geocoder(): 
-    return Nominatim(user_agent="cafes_app_arg_v4", timeout=10)
+    return Nominatim(user_agent="cafes_app_arg_v5", timeout=10)
 
 def obtener_calle(lat, lon):
     try: 
@@ -227,13 +227,16 @@ with st.sidebar:
 # UI PRINCIPAL - CONTADOR
 # =========================
 df_total = cargar_todos_los_cafes()
-st.markdown(f"""
-<div class="main-counter">
-    <p>EXPLORANDO EL CAFÉ DE ESPECIALIDAD</p>
-    <h1>{len(df_total)} Cafeterías</h1>
-    <p>en Argentina</p>
-</div>
-""", unsafe_allow_html=True)
+
+# HTML Aplanado para evitar errores de Markdown
+html_contador = (
+    f"<div class='main-counter'>"
+    f"<p>EXPLORANDO EL CAFÉ DE ESPECIALIDAD</p>"
+    f"<h1>{len(df_total)} Cafeterías</h1>"
+    f"<p>en Argentina</p>"
+    f"</div>"
+)
+st.markdown(html_contador, unsafe_allow_html=True)
 
 tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar por Nombre", "🇦🇷 Mapa Federal"])
 
@@ -300,9 +303,7 @@ with tabs[0]:
                 if not res_busqueda.empty:
                     res_busqueda["CUADRAS"] = res_busqueda["DIST_KM"].apply(lambda km: calcular_cuadras(km, ciudad_sel))
                     res_busqueda["MAPS"] = res_busqueda.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
-                    
                     res_busqueda["WHATSAPP"] = res_busqueda.apply(lambda r: generar_link_whatsapp(r['CAFE'], r['UBICACION'], r['LAT'], r['LONG']), axis=1)
-                    
                     res_busqueda = res_busqueda.reset_index(drop=True)
                     
                     st.dataframe(
@@ -348,20 +349,19 @@ with tabs[0]:
                     wpp_link = generar_link_whatsapp(elegido['CAFE'], elegido['UBICACION'], elegido['LAT'], elegido['LONG'])
                     ig_link = elegido.get('INSTAGRAM', '#')
                     
-                    # AQUÍ SE CORRIGIÓ LA SANGRÍA DEL HTML
-                    st.markdown(f"""
-<div class="tostador-card" style="border: 2px solid #BE8C63; text-align: center; max-width: 500px; margin: 0 auto;">
-    <h3 style="color: #BE8C63; margin-bottom: 15px;">🎯 Recomendación del momento</h3>
-    <h2 style="color: #4B3832; margin-bottom: 5px;">{elegido['CAFE']}</h2>
-    <p style="font-size: 1.1rem; margin-bottom: 15px;">📍 {elegido['UBICACION']} <strong>({dist_txt})</strong></p>
-    
-    <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px; flex-wrap: wrap;">
-        <a class="ig-btn" href="{ig_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">📱 Instagram</a>
-        <a class="ig-btn" href="{map_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">📍 Llevame ahí</a>
-        <a class="wpp-btn" href="{wpp_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">💬 Invitar</a>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+                    # HTML Aplanado para evitar errores
+                    html_recomendacion = (
+                        f"<div class='tostador-card' style='border: 2px solid #BE8C63; text-align: center; max-width: 500px; margin: 0 auto;'>"
+                        f"<h3 style='color: #BE8C63; margin-bottom: 15px;'>🎯 Recomendación del momento</h3>"
+                        f"<h2 style='color: #4B3832; margin-bottom: 5px;'>{elegido['CAFE']}</h2>"
+                        f"<p style='font-size: 1.1rem; margin-bottom: 15px;'>📍 {elegido['UBICACION']} <strong>({dist_txt})</strong></p>"
+                        f"<div style='display: flex; gap: 10px; justify-content: center; margin-top: 10px; flex-wrap: wrap;'>"
+                        f"<a class='ig-btn' href='{ig_link}' target='_blank' style='flex: 1; margin-top: 0; min-width: 120px;'>📱 Instagram</a>"
+                        f"<a class='ig-btn' href='{map_link}' target='_blank' style='flex: 1; margin-top: 0; min-width: 120px;'>📍 Llevame ahí</a>"
+                        f"<a class='wpp-btn' href='{wpp_link}' target='_blank' style='flex: 1; margin-top: 0; min-width: 120px;'>💬 Invitar</a>"
+                        f"</div></div>"
+                    )
+                    st.markdown(html_recomendacion, unsafe_allow_html=True)
                 else:
                     st.warning("No tenés cafeterías a menos de 5 cuadras para recomendarte. ☹️ ¡Probá buscando locales en general!")
 
@@ -380,17 +380,18 @@ with tabs[1]:
         cols = st.columns(3)
         for j, (_, t) in enumerate(tostadores.iloc[i:i+3].iterrows()):
             with cols[j]:
-                # AQUÍ TAMBIÉN SE CORRIGIÓ LA SANGRÍA
-                st.markdown(f"""
-<div class="tostador-card">
-    <div>
-        <div class="tostador-title">☕ {t['TOSTADOR']}</div>
-        <p style='font-size: 0.8rem; color: #BE8C63; font-weight: 600;'>🌱 {t['VARIEDADES']}</p>
-        <p class="tostador-desc">{t['DESCRIPCION']}</p>
-    </div>
-    <a class="ig-btn" href="{t['INSTAGRAM']}" target="_blank">VER INSTAGRAM</a>
-</div>
-""", unsafe_allow_html=True)
+                # HTML Aplanado
+                html_tostador = (
+                    f"<div class='tostador-card'>"
+                    f"<div>"
+                    f"<div class='tostador-title'>☕ {t['TOSTADOR']}</div>"
+                    f"<p style='font-size: 0.8rem; color: #BE8C63; font-weight: 600;'>🌱 {t['VARIEDADES']}</p>"
+                    f"<p class='tostador-desc'>{t['DESCRIPCION']}</p>"
+                    f"</div>"
+                    f"<a class='ig-btn' href='{t['INSTAGRAM']}' target='_blank'>VER INSTAGRAM</a>"
+                    f"</div>"
+                )
+                st.markdown(html_tostador, unsafe_allow_html=True)
 
 # --- TAB 3: BUSCAR POR NOMBRE ---
 with tabs[2]:
