@@ -104,7 +104,7 @@ def cargar_cafes(gid):
         df["LAT"] = pd.to_numeric(df["LAT"].str.replace(",", "."), errors="coerce")
         df["LONG"] = pd.to_numeric(df["LONG"].str.replace(",", "."), errors="coerce")
         
-        # Escudo protector por si todavía no creaste la columna INSTAGRAM
+        # Escudo protector
         if "INSTAGRAM" not in df.columns:
             df["INSTAGRAM"] = ""
             
@@ -228,11 +228,11 @@ with st.sidebar:
 # =========================
 df_total = cargar_todos_los_cafes()
 st.markdown(f"""
-    <div class="main-counter">
-        <p>EXPLORANDO EL CAFÉ DE ESPECIALIDAD</p>
-        <h1>{len(df_total)} Cafeterías</h1>
-        <p>en Argentina</p>
-    </div>
+<div class="main-counter">
+    <p>EXPLORANDO EL CAFÉ DE ESPECIALIDAD</p>
+    <h1>{len(df_total)} Cafeterías</h1>
+    <p>en Argentina</p>
+</div>
 """, unsafe_allow_html=True)
 
 tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar por Nombre", "🇦🇷 Mapa Federal"])
@@ -305,7 +305,6 @@ with tabs[0]:
                     
                     res_busqueda = res_busqueda.reset_index(drop=True)
                     
-                    # AQUÍ SE REEMPLAZA TOSTADOR POR INSTAGRAM
                     st.dataframe(
                         res_busqueda[["CAFE", "UBICACION", "INSTAGRAM", "CUADRAS", "MAPS", "WHATSAPP"]], 
                         use_container_width=True,
@@ -349,20 +348,20 @@ with tabs[0]:
                     wpp_link = generar_link_whatsapp(elegido['CAFE'], elegido['UBICACION'], elegido['LAT'], elegido['LONG'])
                     ig_link = elegido.get('INSTAGRAM', '#')
                     
-                    # AQUÍ SE REEMPLAZA TOSTADOR POR EL BOTÓN DE INSTAGRAM EN LA TARJETA
+                    # AQUÍ SE CORRIGIÓ LA SANGRÍA DEL HTML
                     st.markdown(f"""
-                        <div class="tostador-card" style="border: 2px solid #BE8C63; text-align: center; max-width: 500px; margin: 0 auto;">
-                            <h3 style="color: #BE8C63; margin-bottom: 15px;">🎯 Recomendación del momento</h3>
-                            <h2 style="color: #4B3832; margin-bottom: 5px;">{elegido['CAFE']}</h2>
-                            <p style="font-size: 1.1rem; margin-bottom: 15px;">📍 {elegido['UBICACION']} <strong>({dist_txt})</strong></p>
-                            
-                            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px; flex-wrap: wrap;">
-                                <a class="ig-btn" href="{ig_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">📱 Instagram</a>
-                                <a class="ig-btn" href="{map_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">📍 Llevame ahí</a>
-                                <a class="wpp-btn" href="{wpp_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">💬 Invitar</a>
-                            </div>
-                        </div>
-                    """, unsafe_allow_html=True)
+<div class="tostador-card" style="border: 2px solid #BE8C63; text-align: center; max-width: 500px; margin: 0 auto;">
+    <h3 style="color: #BE8C63; margin-bottom: 15px;">🎯 Recomendación del momento</h3>
+    <h2 style="color: #4B3832; margin-bottom: 5px;">{elegido['CAFE']}</h2>
+    <p style="font-size: 1.1rem; margin-bottom: 15px;">📍 {elegido['UBICACION']} <strong>({dist_txt})</strong></p>
+    
+    <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px; flex-wrap: wrap;">
+        <a class="ig-btn" href="{ig_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">📱 Instagram</a>
+        <a class="ig-btn" href="{map_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">📍 Llevame ahí</a>
+        <a class="wpp-btn" href="{wpp_link}" target="_blank" style="flex: 1; margin-top: 0; min-width: 120px;">💬 Invitar</a>
+    </div>
+</div>
+""", unsafe_allow_html=True)
                 else:
                     st.warning("No tenés cafeterías a menos de 5 cuadras para recomendarte. ☹️ ¡Probá buscando locales en general!")
 
@@ -381,16 +380,17 @@ with tabs[1]:
         cols = st.columns(3)
         for j, (_, t) in enumerate(tostadores.iloc[i:i+3].iterrows()):
             with cols[j]:
+                # AQUÍ TAMBIÉN SE CORRIGIÓ LA SANGRÍA
                 st.markdown(f"""
-                    <div class="tostador-card">
-                        <div>
-                            <div class="tostador-title">☕ {t['TOSTADOR']}</div>
-                            <p style='font-size: 0.8rem; color: #BE8C63; font-weight: 600;'>🌱 {t['VARIEDADES']}</p>
-                            <p class="tostador-desc">{t['DESCRIPCION']}</p>
-                        </div>
-                        <a class="ig-btn" href="{t['INSTAGRAM']}" target="_blank">VER INSTAGRAM</a>
-                    </div>
-                """, unsafe_allow_html=True)
+<div class="tostador-card">
+    <div>
+        <div class="tostador-title">☕ {t['TOSTADOR']}</div>
+        <p style='font-size: 0.8rem; color: #BE8C63; font-weight: 600;'>🌱 {t['VARIEDADES']}</p>
+        <p class="tostador-desc">{t['DESCRIPCION']}</p>
+    </div>
+    <a class="ig-btn" href="{t['INSTAGRAM']}" target="_blank">VER INSTAGRAM</a>
+</div>
+""", unsafe_allow_html=True)
 
 # --- TAB 3: BUSCAR POR NOMBRE ---
 with tabs[2]:
@@ -430,7 +430,6 @@ with tabs[2]:
         else:
             st.success(f"Encontrado en {resultado['CIUDAD'].iloc[0]}")
             
-        # AQUÍ SE REEMPLAZA TOSTADOR POR INSTAGRAM
         st.dataframe(
             resultado[["CAFE", "UBICACION", "INSTAGRAM", "CIUDAD", "MAPS", "WHATSAPP"]], 
             use_container_width=True,
