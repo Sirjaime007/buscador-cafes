@@ -101,6 +101,10 @@ def sheet_url(gid: str) -> str:
 def cargar_cafes(gid):
     try:
         df = pd.read_csv(sheet_url(gid), dtype=str)
+        
+        # EL TRUCO: Pasamos todas las columnas a mayúsculas
+        df.columns = df.columns.str.upper()
+        
         df["LAT"] = pd.to_numeric(df["LAT"].str.replace(",", "."), errors="coerce")
         df["LONG"] = pd.to_numeric(df["LONG"].str.replace(",", "."), errors="coerce")
         
@@ -115,7 +119,9 @@ def cargar_cafes(gid):
 @st.cache_data(ttl=300)
 def cargar_tostadores():
     try: 
-        return pd.read_csv(sheet_url(GID_TOSTADORES), dtype=str).fillna("-")
+        df = pd.read_csv(sheet_url(GID_TOSTADORES), dtype=str).fillna("-")
+        df.columns = df.columns.str.upper()
+        return df
     except: 
         return pd.DataFrame()
 
@@ -228,7 +234,6 @@ with st.sidebar:
 # =========================
 df_total = cargar_todos_los_cafes()
 
-# HTML Aplanado para evitar errores de Markdown
 html_contador = (
     f"<div class='main-counter'>"
     f"<p>EXPLORANDO EL CAFÉ DE ESPECIALIDAD</p>"
@@ -349,7 +354,6 @@ with tabs[0]:
                     wpp_link = generar_link_whatsapp(elegido['CAFE'], elegido['UBICACION'], elegido['LAT'], elegido['LONG'])
                     ig_link = elegido.get('INSTAGRAM', '#')
                     
-                    # HTML Aplanado para evitar errores
                     html_recomendacion = (
                         f"<div class='tostador-card' style='border: 2px solid #BE8C63; text-align: center; max-width: 500px; margin: 0 auto;'>"
                         f"<h3 style='color: #BE8C63; margin-bottom: 15px;'>🎯 Recomendación del momento</h3>"
@@ -380,7 +384,6 @@ with tabs[1]:
         cols = st.columns(3)
         for j, (_, t) in enumerate(tostadores.iloc[i:i+3].iterrows()):
             with cols[j]:
-                # HTML Aplanado
                 html_tostador = (
                     f"<div class='tostador-card'>"
                     f"<div>"
