@@ -5,3 +5,4 @@ pydeck
 gspread
 google-auth
 streamlit-js-eval
+extra-streamlit-components
