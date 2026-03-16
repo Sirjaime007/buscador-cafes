@@ -18,12 +18,19 @@ st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wid
 # INICIALIZAR GESTOR DE COOKIES
 # =========================
 cookie_manager = stx.CookieManager()
+
 favs_guardados = cookie_manager.get(cookie="cafes_favoritos")
+visitados_guardados = cookie_manager.get(cookie="cafes_visitados")
 
 if favs_guardados is None:
     favs_iniciales = []
 else:
     favs_iniciales = favs_guardados.split("||") if favs_guardados else []
+
+if visitados_guardados is None:
+    visitados_iniciales = []
+else:
+    visitados_iniciales = visitados_guardados.split("||") if visitados_guardados else []
 
 st.markdown("""
     <style>
@@ -275,7 +282,8 @@ html_contador = (
 )
 st.markdown(html_contador, unsafe_allow_html=True)
 
-tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar por Nombre", "🇦🇷 Mapa Federal", "⭐ Favoritos"])
+# AGREGAMOS LA NUEVA PESTAÑA DE PASAPORTE AL MENÚ
+tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar", "🇦🇷 Mapa Federal", "⭐ Favoritos", "🛂 Pasaporte"])
 
 # --- TAB 1: CAFÉS ---
 with tabs[0]:
@@ -455,7 +463,6 @@ with tabs[2]:
         df_nombres_filtrado = df_total[df_total["CIUDAD"] == ciudad_real_elegida]
         
     lista_nombres_filtrada = sorted(df_nombres_filtrado["CAFE"].dropna().unique())
-    # El selectbox de acá también tiene autocompletar si lo tocás y escribís
     nombre_sel = st.selectbox("☕ Seleccioná o escribí el nombre del café", [""] + lista_nombres_filtrada)
     
     if nombre_sel:
@@ -495,15 +502,14 @@ with tabs[3]:
     )
     st.pydeck_chart(pdk.Deck(layers=[layer_fed], initial_view_state=view_arg, tooltip={"text": "{CAFE}"}))
 
-# --- TAB 5: FAVORITOS CON GUARDADO AUTOMÁTICO ---
+# --- TAB 5: FAVORITOS ---
 with tabs[4]:
     st.subheader("⭐ Mis Cafés Favoritos")
-    st.write("Buscá y armá tu propia lista. ¡Tus elecciones quedarán guardadas en este navegador para tu próxima visita!")
+    st.write("Armá tu propia lista. ¡Tus elecciones quedarán guardadas para tu próxima visita!")
     
     todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
     favs_validos = [f for f in favs_iniciales if f in todos_los_nombres]
     
-    # ACÁ ESTÁ EL CAMBIO: El texto "placeholder" invita al usuario a escribir
     seleccionados = st.multiselect(
         "Buscá y agregá cafeterías:", 
         todos_los_nombres, 
@@ -531,3 +537,61 @@ with tabs[4]:
         )
     else:
         st.info("💡 Todavía no agregaste ningún favorito. Usá el buscador de arriba para empezar a armar tu lista.")
+
+# --- TAB 6: PASAPORTE CAFETERO (NUEVO) ---
+with tabs[5]:
+    st.subheader("🛂 Tu Pasaporte Cafetero")
+    st.write("Coleccioná sellos por cada local de especialidad que conozcas. ¡Desbloqueá nuevos niveles a medida que explorás!")
+    
+    todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
+    visitados_validos = [v for v in visitados_iniciales if v in todos_los_nombres]
+    
+    # 1. Buscador para sellar el pasaporte
+    seleccionados_vis = st.multiselect(
+        "Agregá tus sellos al pasaporte:", 
+        todos_los_nombres, 
+        default=visitados_validos,
+        placeholder="Buscá los cafés que ya visitaste..."
+    )
+    
+    if seleccionados_vis != visitados_validos:
+        cookie_manager.set("cafes_visitados", "||".join(seleccionados_vis))
+        
+    # 2. Cálculos de Nivel
+    total_cafes = len(todos_los_nombres)
+    visitados_count = len(seleccionados_vis)
+    
+    if visitados_count == 0:
+        nivel = "Recién Iniciado 🌱"
+        color = "#85746D"
+    elif visitados_count <= 5:
+        nivel = "Turista del Café 🚶"
+        color = "#BE8C63"
+    elif visitados_count <= 15:
+        nivel = "Catador en Ascenso ☕"
+        color = "#D97736"
+    elif visitados_count <= 30:
+        nivel = "Parroquiano Fiel 🏠"
+        color = "#A65A2E"
+    elif visitados_count <= 50:
+        nivel = "Barista Honorario 🏆"
+        color = "#4B3832"
+    else:
+        nivel = "Leyenda del Café 👑"
+        color = "#FFD700"
+        
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # 3. Tarjeta de Rango
+    html_pasaporte = (
+        f"<div style='background-color: #FFFFFF; padding: 20px; border-radius: 12px; border: 2px solid {color}; text-align: center; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);'>"
+        f"<h3 style='color: #4B3832; margin-bottom: 5px;'>Rango Actual: <span style='color: {color};'>{nivel}</span></h3>"
+        f"<p style='font-size: 1.1rem; color: #85746D; margin-top: 5px;'>Coleccionaste <strong>{visitados_count}</strong> sellos de <strong>{total_cafes}</strong> cafeterías disponibles.</p>"
+        f"</div>"
+    )
+    st.markdown(html_pasaporte, unsafe_allow_html=True)
+    
+    # 4. Barra de Progreso Visual
+    if total_cafes > 0:
+        progreso = min(visitados_count / total_cafes, 1.0)
+        st.progress(progreso)
