@@ -524,9 +524,22 @@ with tabs[4]:
     todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
     favs_validos = [f for f in favs_iniciales if f in todos_los_nombres]
     
+    # 1. FILTRO DE CIUDAD PARA FAVORITOS
+    ciudades_fav = ["Todas"] + sorted(df_total["CIUDAD"].dropna().unique())
+    ciudad_filtro_fav = st.selectbox("🏙️ Filtrar buscador por ciudad:", ciudades_fav, key="filtro_fav")
+    
+    if ciudad_filtro_fav == "Todas":
+        opciones_fav = todos_los_nombres
+    else:
+        opciones_fav = sorted(df_total[df_total["CIUDAD"] == ciudad_filtro_fav]["CAFE"].dropna().unique())
+        
+    # El truco maestro: Le sumamos a las opciones los favoritos que ya tiene guardados, 
+    # para que Streamlit no los borre cuando cambia de ciudad.
+    opciones_validas_fav = sorted(list(set(opciones_fav) | set(favs_validos)))
+    
     seleccionados = st.multiselect(
         "Buscá y agregá cafeterías:", 
-        todos_los_nombres, 
+        opciones_validas_fav, 
         default=favs_validos,
         placeholder="Empezá a escribir el nombre acá..."
     )
@@ -552,7 +565,7 @@ with tabs[4]:
     else:
         st.info("💡 Todavía no agregaste ningún favorito. Usá el buscador de arriba para empezar a armar tu lista.")
 
-# --- TAB 6: PASAPORTE CAFETERO (MEJORADO) ---
+# --- TAB 6: PASAPORTE CAFETERO ---
 with tabs[5]:
     st.subheader("🛂 Tu Pasaporte Cafetero")
     st.write("Coleccioná sellos por cada local que conozcas. ¡Desbloqueá niveles globales y locales a medida que explorás!")
@@ -560,10 +573,21 @@ with tabs[5]:
     todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
     visitados_validos = [v for v in visitados_iniciales if v in todos_los_nombres]
     
+    # 1. FILTRO DE CIUDAD PARA PASAPORTE
+    ciudades_pas = ["Todas"] + sorted(df_total["CIUDAD"].dropna().unique())
+    ciudad_filtro_pas = st.selectbox("🏙️ Filtrar buscador por ciudad:", ciudades_pas, key="filtro_pas")
+    
+    if ciudad_filtro_pas == "Todas":
+        opciones_pas = todos_los_nombres
+    else:
+        opciones_pas = sorted(df_total[df_total["CIUDAD"] == ciudad_filtro_pas]["CAFE"].dropna().unique())
+        
+    opciones_validas_pas = sorted(list(set(opciones_pas) | set(visitados_validos)))
+    
     # Buscador principal
     seleccionados_vis = st.multiselect(
         "Agregá tus sellos al pasaporte:", 
-        todos_los_nombres, 
+        opciones_validas_pas, 
         default=visitados_validos,
         placeholder="Buscá los cafés que ya visitaste..."
     )
@@ -597,7 +621,6 @@ with tabs[5]:
     df_visitados = df_total[df_total["CAFE"].isin(seleccionados_vis)]
     ciudades = sorted(df_total["CIUDAD"].dropna().unique())
     
-    # Organizamos en 3 columnas para que parezcan sellos de pasaporte
     cols = st.columns(3)
     
     for idx, ciudad in enumerate(ciudades):
