@@ -246,7 +246,6 @@ def generar_link_whatsapp(nombre, ubicacion, lat, lon):
     texto_codificado = urllib.parse.quote(texto)
     return f"https://api.whatsapp.com/send?text={texto_codificado}"
 
-# Función para calcular los rangos del pasaporte
 def calcular_rango_pasaporte(cantidad):
     if cantidad == 0:
         return "Recién Iniciado 🌱", "#85746D"
@@ -516,44 +515,59 @@ with tabs[3]:
     )
     st.pydeck_chart(pdk.Deck(layers=[layer_fed], initial_view_state=view_arg, tooltip={"text": "{CAFE}"}))
 
-# --- TAB 5: FAVORITOS ---
+# --- TAB 5: FAVORITOS (NUEVO DISEÑO CON TABLA INTERACTIVA) ---
 with tabs[4]:
     st.subheader("⭐ Mis Cafés Favoritos")
-    st.write("Armá tu propia lista. ¡Tus elecciones quedarán guardadas para tu próxima visita!")
     
-    todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
-    favs_validos = [f for f in favs_iniciales if f in todos_los_nombres]
-    
-    # 1. FILTRO DE CIUDAD PARA FAVORITOS
+    col_f1, col_f2 = st.columns(2)
     ciudades_fav = ["Todas"] + sorted(df_total["CIUDAD"].dropna().unique())
-    ciudad_filtro_fav = st.selectbox("🏙️ Filtrar buscador por ciudad:", ciudades_fav, key="filtro_fav")
+    ciudad_filtro_fav = col_f1.selectbox("🏙️ Filtrar por ciudad:", ciudades_fav, key="sel_fav_ciudad")
+    busqueda_fav = col_f2.text_input("🔍 Buscar local específico:", key="txt_fav_busqueda")
     
-    if ciudad_filtro_fav == "Todas":
-        opciones_fav = todos_los_nombres
-    else:
-        opciones_fav = sorted(df_total[df_total["CIUDAD"] == ciudad_filtro_fav]["CAFE"].dropna().unique())
+    df_fav_view = df_total.copy()
+    if ciudad_filtro_fav != "Todas":
+        df_fav_view = df_fav_view[df_fav_view["CIUDAD"] == ciudad_filtro_fav]
+    if busqueda_fav:
+        df_fav_view = df_fav_view[df_fav_view["CAFE"].str.contains(busqueda_fav, case=False, na=False)]
         
-    # El truco maestro: Le sumamos a las opciones los favoritos que ya tiene guardados, 
-    # para que Streamlit no los borre cuando cambia de ciudad.
-    opciones_validas_fav = sorted(list(set(opciones_fav) | set(favs_validos)))
+    df_fav_view["ES_FAV"] = df_fav_view["CAFE"].isin(favs_iniciales)
     
-    seleccionados = st.multiselect(
-        "Buscá y agregá cafeterías:", 
-        opciones_validas_fav, 
-        default=favs_validos,
-        placeholder="Empezá a escribir el nombre acá..."
+    st.write("Tildá la casilla ⭐ en la tabla para guardarlo en tu lista:")
+    
+    edited_favs = st.data_editor(
+        df_fav_view[["ES_FAV", "CAFE", "UBICACION", "CIUDAD"]],
+        column_config={
+            "ES_FAV": st.column_config.CheckboxColumn("⭐", default=False),
+            "CAFE": "Cafetería",
+            "UBICACION": "Dirección",
+            "CIUDAD": "Ciudad"
+        },
+        disabled=["CAFE", "UBICACION", "CIUDAD"],
+        hide_index=True,
+        use_container_width=True,
+        key="editor_favs"
     )
     
-    if seleccionados != favs_validos:
-        cookie_manager.set("cafes_favoritos", "||".join(seleccionados))
+    cafes_visibles_fav = df_fav_view["CAFE"].tolist()
+    seleccionados_ahora_fav = edited_favs[edited_favs["ES_FAV"]]["CAFE"].tolist()
     
-    if seleccionados:
-        df_favs = df_total[df_total["CAFE"].isin(seleccionados)].copy()
-        df_favs["MAPS"] = df_favs.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
-        df_favs["WHATSAPP"] = df_favs.apply(lambda r: generar_link_whatsapp(r['CAFE'], r['UBICACION'], r['LAT'], r['LONG']), axis=1)
+    favs_no_visibles = [c for c in favs_iniciales if c not in cafes_visibles_fav]
+    lista_favs_final = favs_no_visibles + seleccionados_ahora_fav
+    
+    if set(lista_favs_final) != set(favs_iniciales):
+        cookie_manager.set("cafes_favoritos", "||".join(lista_favs_final))
+        favs_iniciales = lista_favs_final
+        
+    st.markdown("<br><hr>", unsafe_allow_html=True)
+    
+    if lista_favs_final:
+        st.markdown("### 📋 Tu Lista Armada")
+        df_favs_mostrar = df_total[df_total["CAFE"].isin(lista_favs_final)].copy()
+        df_favs_mostrar["MAPS"] = df_favs_mostrar.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
+        df_favs_mostrar["WHATSAPP"] = df_favs_mostrar.apply(lambda r: generar_link_whatsapp(r['CAFE'], r['UBICACION'], r['LAT'], r['LONG']), axis=1)
         
         st.dataframe(
-            df_favs[["CAFE", "UBICACION", "CIUDAD", "INSTAGRAM", "MAPS", "WHATSAPP"]],
+            df_favs_mostrar[["CAFE", "UBICACION", "CIUDAD", "INSTAGRAM", "MAPS", "WHATSAPP"]],
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -563,43 +577,57 @@ with tabs[4]:
             }
         )
     else:
-        st.info("💡 Todavía no agregaste ningún favorito. Usá el buscador de arriba para empezar a armar tu lista.")
+        st.info("💡 Todavía no agregaste ningún favorito. Tildá alguno en la tabla de arriba.")
 
-# --- TAB 6: PASAPORTE CAFETERO ---
+# --- TAB 6: PASAPORTE CAFETERO (NUEVO DISEÑO CON TABLA INTERACTIVA) ---
 with tabs[5]:
     st.subheader("🛂 Tu Pasaporte Cafetero")
-    st.write("Coleccioná sellos por cada local que conozcas. ¡Desbloqueá niveles globales y locales a medida que explorás!")
     
-    todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
-    visitados_validos = [v for v in visitados_iniciales if v in todos_los_nombres]
-    
-    # 1. FILTRO DE CIUDAD PARA PASAPORTE
+    col_p1, col_p2 = st.columns(2)
     ciudades_pas = ["Todas"] + sorted(df_total["CIUDAD"].dropna().unique())
-    ciudad_filtro_pas = st.selectbox("🏙️ Filtrar buscador por ciudad:", ciudades_pas, key="filtro_pas")
+    ciudad_filtro_pas = col_p1.selectbox("🏙️ Filtrar por ciudad:", ciudades_pas, key="sel_pas_ciudad")
+    busqueda_pas = col_p2.text_input("🔍 Buscar local específico:", key="txt_pas_busqueda")
     
-    if ciudad_filtro_pas == "Todas":
-        opciones_pas = todos_los_nombres
-    else:
-        opciones_pas = sorted(df_total[df_total["CIUDAD"] == ciudad_filtro_pas]["CAFE"].dropna().unique())
+    df_pas_view = df_total.copy()
+    if ciudad_filtro_pas != "Todas":
+        df_pas_view = df_pas_view[df_pas_view["CIUDAD"] == ciudad_filtro_pas]
+    if busqueda_pas:
+        df_pas_view = df_pas_view[df_pas_view["CAFE"].str.contains(busqueda_pas, case=False, na=False)]
         
-    opciones_validas_pas = sorted(list(set(opciones_pas) | set(visitados_validos)))
+    df_pas_view["VISITADO"] = df_pas_view["CAFE"].isin(visitados_iniciales)
     
-    # Buscador principal
-    seleccionados_vis = st.multiselect(
-        "Agregá tus sellos al pasaporte:", 
-        opciones_validas_pas, 
-        default=visitados_validos,
-        placeholder="Buscá los cafés que ya visitaste..."
+    st.write("Tildá la casilla 🛂 en la tabla para sellar tu pasaporte:")
+    
+    edited_pas = st.data_editor(
+        df_pas_view[["VISITADO", "CAFE", "UBICACION", "CIUDAD"]],
+        column_config={
+            "VISITADO": st.column_config.CheckboxColumn("🛂", default=False),
+            "CAFE": "Cafetería",
+            "UBICACION": "Dirección",
+            "CIUDAD": "Ciudad"
+        },
+        disabled=["CAFE", "UBICACION", "CIUDAD"],
+        hide_index=True,
+        use_container_width=True,
+        key="editor_pas"
     )
     
-    if seleccionados_vis != visitados_validos:
-        cookie_manager.set("cafes_visitados", "||".join(seleccionados_vis))
+    cafes_visibles_pas = df_pas_view["CAFE"].tolist()
+    seleccionados_ahora_pas = edited_pas[edited_pas["VISITADO"]]["CAFE"].tolist()
+    
+    visitados_no_visibles = [c for c in visitados_iniciales if c not in cafes_visibles_pas]
+    lista_visitados_final = visitados_no_visibles + seleccionados_ahora_pas
+    
+    if set(lista_visitados_final) != set(visitados_iniciales):
+        cookie_manager.set("cafes_visitados", "||".join(lista_visitados_final))
+        visitados_iniciales = lista_visitados_final
         
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br><hr>", unsafe_allow_html=True)
     
     # --- RANGO NACIONAL ---
+    todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
     total_cafes = len(todos_los_nombres)
-    visitados_count = len(seleccionados_vis)
+    visitados_count = len(lista_visitados_final)
     nivel_global, color_global = calcular_rango_pasaporte(visitados_count)
     
     st.markdown("### 🇦🇷 Progreso Nacional")
@@ -618,7 +646,7 @@ with tabs[5]:
     # --- RANGOS POR CIUDAD ---
     st.markdown("### 📍 Logros por Ciudad")
     
-    df_visitados = df_total[df_total["CAFE"].isin(seleccionados_vis)]
+    df_visitados = df_total[df_total["CAFE"].isin(lista_visitados_final)]
     ciudades = sorted(df_total["CIUDAD"].dropna().unique())
     
     cols = st.columns(3)
