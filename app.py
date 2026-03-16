@@ -7,7 +7,7 @@ import requests
 from streamlit_js_eval import get_geolocation
 import random
 import urllib.parse
-import extra_streamlit_components as stx  # <-- NUEVO: Gestor de Cookies
+import extra_streamlit_components as stx
 
 # =========================
 # CONFIG APP Y ESTILOS
@@ -18,15 +18,11 @@ st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wid
 # INICIALIZAR GESTOR DE COOKIES
 # =========================
 cookie_manager = stx.CookieManager()
-
-# Recuperamos la cookie guardada en el navegador (si existe)
 favs_guardados = cookie_manager.get(cookie="cafes_favoritos")
 
-# Limpiamos y preparamos la lista de favoritos
 if favs_guardados is None:
     favs_iniciales = []
 else:
-    # La guardamos como un texto separado por "||" para que no haya errores
     favs_iniciales = favs_guardados.split("||") if favs_guardados else []
 
 st.markdown("""
@@ -42,7 +38,7 @@ st.markdown("""
     
     .stApp { background-color: #FDF8F5; }
     
-    /* SOLUCIÓN AL MODO OSCURO (BLANCO SOBRE BLANCO) */
+    /* SOLUCIÓN AL MODO OSCURO */
     .stSelectbox label, .stTextInput label, .stSlider label, .stRadio label, .stMarkdown p {
         color: #4B3832 !important;
     }
@@ -50,19 +46,29 @@ st.markdown("""
         color: #4B3832 !important;
         background-color: #FFFFFF !important;
     }
-    /* ------------------------------------------- */
     
     .main-counter {
         background-color: #4B3832;
-        color: #FDF8F5;
         padding: 35px 20px;
         border-radius: 16px;
         text-align: center;
         margin-bottom: 30px;
         box-shadow: 0 4px 15px rgba(75, 56, 50, 0.1);
     }
-    .main-counter h1 { font-weight: 600; font-size: 3.2rem; margin: 0; color: #BE8C63; }
-    .main-counter p { font-weight: 400; font-size: 1.1rem; opacity: 0.9; margin: 0; text-transform: uppercase; letter-spacing: 1px;}
+    .main-counter h1 { 
+        font-weight: 600; 
+        font-size: 3.2rem; 
+        margin: 0; 
+        color: #BE8C63 !important; 
+    }
+    .main-counter p { 
+        font-weight: 400; 
+        font-size: 1.1rem; 
+        margin: 0; 
+        text-transform: uppercase; 
+        letter-spacing: 1px;
+        color: #FDF8F5 !important;
+    }
 
     .tostador-card {
         background: #FFFFFF;
@@ -449,6 +455,7 @@ with tabs[2]:
         df_nombres_filtrado = df_total[df_total["CIUDAD"] == ciudad_real_elegida]
         
     lista_nombres_filtrada = sorted(df_nombres_filtrado["CAFE"].dropna().unique())
+    # El selectbox de acá también tiene autocompletar si lo tocás y escribís
     nombre_sel = st.selectbox("☕ Seleccioná o escribí el nombre del café", [""] + lista_nombres_filtrada)
     
     if nombre_sel:
@@ -494,18 +501,16 @@ with tabs[4]:
     st.write("Buscá y armá tu propia lista. ¡Tus elecciones quedarán guardadas en este navegador para tu próxima visita!")
     
     todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
-    
-    # Filtramos la lista inicial por las dudas de que hayas borrado algún café del Excel 
     favs_validos = [f for f in favs_iniciales if f in todos_los_nombres]
     
-    # Selector múltiple
+    # ACÁ ESTÁ EL CAMBIO: El texto "placeholder" invita al usuario a escribir
     seleccionados = st.multiselect(
         "Buscá y agregá cafeterías:", 
         todos_los_nombres, 
-        default=favs_validos
+        default=favs_validos,
+        placeholder="Empezá a escribir el nombre acá..."
     )
     
-    # ¡LA MAGIA DE LAS COOKIES!: Si el usuario agrega o saca un café, actualizamos el archivo
     if seleccionados != favs_validos:
         cookie_manager.set("cafes_favoritos", "||".join(seleccionados))
     
