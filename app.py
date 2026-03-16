@@ -7,11 +7,27 @@ import requests
 from streamlit_js_eval import get_geolocation
 import random
 import urllib.parse
+import extra_streamlit_components as stx  # <-- NUEVO: Gestor de Cookies
 
 # =========================
 # CONFIG APP Y ESTILOS
 # =========================
 st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wide")
+
+# =========================
+# INICIALIZAR GESTOR DE COOKIES
+# =========================
+cookie_manager = stx.CookieManager()
+
+# Recuperamos la cookie guardada en el navegador (si existe)
+favs_guardados = cookie_manager.get(cookie="cafes_favoritos")
+
+# Limpiamos y preparamos la lista de favoritos
+if favs_guardados is None:
+    favs_iniciales = []
+else:
+    # La guardamos como un texto separado por "||" para que no haya errores
+    favs_iniciales = favs_guardados.split("||") if favs_guardados else []
 
 st.markdown("""
     <style>
@@ -26,6 +42,16 @@ st.markdown("""
     
     .stApp { background-color: #FDF8F5; }
     
+    /* SOLUCIÓN AL MODO OSCURO (BLANCO SOBRE BLANCO) */
+    .stSelectbox label, .stTextInput label, .stSlider label, .stRadio label, .stMarkdown p {
+        color: #4B3832 !important;
+    }
+    .stTextInput input {
+        color: #4B3832 !important;
+        background-color: #FFFFFF !important;
+    }
+    /* ------------------------------------------- */
+    
     .main-counter {
         background-color: #4B3832;
         color: #FDF8F5;
@@ -36,7 +62,7 @@ st.markdown("""
         box-shadow: 0 4px 15px rgba(75, 56, 50, 0.1);
     }
     .main-counter h1 { font-weight: 600; font-size: 3.2rem; margin: 0; color: #BE8C63; }
-    .main-counter p { font-weight: 300; font-size: 1.1rem; opacity: 0.9; margin: 0; }
+    .main-counter p { font-weight: 400; font-size: 1.1rem; opacity: 0.9; margin: 0; text-transform: uppercase; letter-spacing: 1px;}
 
     .tostador-card {
         background: #FFFFFF;
@@ -54,7 +80,7 @@ st.markdown("""
     
     .ig-btn {
         background: #4B3832;
-        color: #FDF8F5 !important;
+        color: #FFFFFF !important;
         text-align: center;
         padding: 8px;
         border-radius: 8px;
@@ -85,12 +111,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================
-# CARGA DE DATOS
+# CARGA DE DATOS 
 # =========================
 SPREADSHEET_ID = "10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
 GID_CAFES = {
-    "Mar del Plata": "0", "Buenos Aires": "1296176686", 
-    "La Plata": "208452991", "Córdoba": "1250014567", "Rosario": "1691979590"
+    "Mar del Plata": "0", 
+    "Buenos Aires": "1296176686", 
+    "La Plata": "208452991", 
+    "Córdoba": "1250014567", 
+    "Rosario": "1691979590",
+    "Mendoza": "2031963266",
+    "Bahía Blanca": "1634818534"
 }
 GID_TOSTADORES = "1590442133"
 
@@ -101,14 +132,10 @@ def sheet_url(gid: str) -> str:
 def cargar_cafes(gid):
     try:
         df = pd.read_csv(sheet_url(gid), dtype=str)
-        
-        # EL TRUCO: Pasamos todas las columnas a mayúsculas
         df.columns = df.columns.str.upper()
-        
         df["LAT"] = pd.to_numeric(df["LAT"].str.replace(",", "."), errors="coerce")
         df["LONG"] = pd.to_numeric(df["LONG"].str.replace(",", "."), errors="coerce")
         
-        # Escudo protector
         if "INSTAGRAM" not in df.columns:
             df["INSTAGRAM"] = ""
             
@@ -145,7 +172,7 @@ def get_geocoder():
 
 @st.cache_resource
 def get_osm_geocoder(): 
-    return Nominatim(user_agent="cafes_app_arg_v5", timeout=10)
+    return Nominatim(user_agent="cafes_app_arg_v6", timeout=10)
 
 def obtener_calle(lat, lon):
     try: 
@@ -225,7 +252,7 @@ with st.sidebar:
                        f"Dir: {sug_ubicacion}\nCiudad: {sug_ciudad}\nComentario: {sug_comentario}")
                 requests.post(f"https://api.telegram.org/bot{st.secrets['TELEGRAM_TOKEN']}/sendMessage", 
                               data={"chat_id": st.secrets['CHAT_ID'], "text": msg})
-                st.success("¡Enviado a @Lisandro0_18! 🚀")
+                st.success("¡Mensaje enviado correctamente! 🚀")
             except: 
                 st.error("Error al enviar")
 
@@ -236,14 +263,13 @@ df_total = cargar_todos_los_cafes()
 
 html_contador = (
     f"<div class='main-counter'>"
-    f"<p>EXPLORANDO EL CAFÉ DE ESPECIALIDAD</p>"
+    f"<p>EXPLORANDO EL CAFÉ DE ESPECIALIDAD<br>EN ARGENTINA</p>"
     f"<h1>{len(df_total)} Cafeterías</h1>"
-    f"<p>en Argentina</p>"
     f"</div>"
 )
 st.markdown(html_contador, unsafe_allow_html=True)
 
-tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar por Nombre", "🇦🇷 Mapa Federal"])
+tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar por Nombre", "🇦🇷 Mapa Federal", "⭐ Favoritos"])
 
 # --- TAB 1: CAFÉS ---
 with tabs[0]:
@@ -255,7 +281,9 @@ with tabs[0]:
         "Buenos Aires": "Ej: Av. Santa Fe 3000, Palermo",
         "La Plata": "Ej: Av 7 800, Tolosa",
         "Córdoba": "Ej: Av. General Paz 150",
-        "Rosario": "Ej: Bulevar Oroño 500"
+        "Rosario": "Ej: Bulevar Oroño 500",
+        "Mendoza": "Ej: San Martín 1000",
+        "Bahía Blanca": "Ej: Alsina 100"
     }
     texto_ejemplo = placeholders.get(ciudad_sel, "Ej: San Martín 100")
     
@@ -459,3 +487,42 @@ with tabs[3]:
         pickable=True
     )
     st.pydeck_chart(pdk.Deck(layers=[layer_fed], initial_view_state=view_arg, tooltip={"text": "{CAFE}"}))
+
+# --- TAB 5: FAVORITOS CON GUARDADO AUTOMÁTICO ---
+with tabs[4]:
+    st.subheader("⭐ Mis Cafés Favoritos")
+    st.write("Buscá y armá tu propia lista. ¡Tus elecciones quedarán guardadas en este navegador para tu próxima visita!")
+    
+    todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
+    
+    # Filtramos la lista inicial por las dudas de que hayas borrado algún café del Excel 
+    favs_validos = [f for f in favs_iniciales if f in todos_los_nombres]
+    
+    # Selector múltiple
+    seleccionados = st.multiselect(
+        "Buscá y agregá cafeterías:", 
+        todos_los_nombres, 
+        default=favs_validos
+    )
+    
+    # ¡LA MAGIA DE LAS COOKIES!: Si el usuario agrega o saca un café, actualizamos el archivo
+    if seleccionados != favs_validos:
+        cookie_manager.set("cafes_favoritos", "||".join(seleccionados))
+    
+    if seleccionados:
+        df_favs = df_total[df_total["CAFE"].isin(seleccionados)].copy()
+        df_favs["MAPS"] = df_favs.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
+        df_favs["WHATSAPP"] = df_favs.apply(lambda r: generar_link_whatsapp(r['CAFE'], r['UBICACION'], r['LAT'], r['LONG']), axis=1)
+        
+        st.dataframe(
+            df_favs[["CAFE", "UBICACION", "CIUDAD", "INSTAGRAM", "MAPS", "WHATSAPP"]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "INSTAGRAM": st.column_config.LinkColumn("Instagram", display_text="📱 Ver Perfil"),
+                "MAPS": st.column_config.LinkColumn("Google Maps", display_text="📍 Abrir en mapa"),
+                "WHATSAPP": st.column_config.LinkColumn("WhatsApp", display_text="💬 Invitar")
+            }
+        )
+    else:
+        st.info("💡 Todavía no agregaste ningún favorito. Usá el buscador de arriba para empezar a armar tu lista.")
