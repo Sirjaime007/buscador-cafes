@@ -246,6 +246,21 @@ def generar_link_whatsapp(nombre, ubicacion, lat, lon):
     texto_codificado = urllib.parse.quote(texto)
     return f"https://api.whatsapp.com/send?text={texto_codificado}"
 
+# Función para calcular los rangos del pasaporte
+def calcular_rango_pasaporte(cantidad):
+    if cantidad == 0:
+        return "Recién Iniciado 🌱", "#85746D"
+    elif cantidad <= 5:
+        return "Turista del Café 🚶", "#BE8C63"
+    elif cantidad <= 15:
+        return "Catador en Ascenso ☕", "#D97736"
+    elif cantidad <= 30:
+        return "Parroquiano Fiel 🏠", "#A65A2E"
+    elif cantidad <= 50:
+        return "Barista Honorario 🏆", "#4B3832"
+    else:
+        return "Leyenda del Café 👑", "#FFD700"
+
 # =========================
 # SIDEBAR - TELEGRAM
 # =========================
@@ -282,7 +297,6 @@ html_contador = (
 )
 st.markdown(html_contador, unsafe_allow_html=True)
 
-# AGREGAMOS LA NUEVA PESTAÑA DE PASAPORTE AL MENÚ
 tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar", "🇦🇷 Mapa Federal", "⭐ Favoritos", "🛂 Pasaporte"])
 
 # --- TAB 1: CAFÉS ---
@@ -538,15 +552,15 @@ with tabs[4]:
     else:
         st.info("💡 Todavía no agregaste ningún favorito. Usá el buscador de arriba para empezar a armar tu lista.")
 
-# --- TAB 6: PASAPORTE CAFETERO (NUEVO) ---
+# --- TAB 6: PASAPORTE CAFETERO (MEJORADO) ---
 with tabs[5]:
     st.subheader("🛂 Tu Pasaporte Cafetero")
-    st.write("Coleccioná sellos por cada local de especialidad que conozcas. ¡Desbloqueá nuevos niveles a medida que explorás!")
+    st.write("Coleccioná sellos por cada local que conozcas. ¡Desbloqueá niveles globales y locales a medida que explorás!")
     
     todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
     visitados_validos = [v for v in visitados_iniciales if v in todos_los_nombres]
     
-    # 1. Buscador para sellar el pasaporte
+    # Buscador principal
     seleccionados_vis = st.multiselect(
         "Agregá tus sellos al pasaporte:", 
         todos_los_nombres, 
@@ -557,41 +571,49 @@ with tabs[5]:
     if seleccionados_vis != visitados_validos:
         cookie_manager.set("cafes_visitados", "||".join(seleccionados_vis))
         
-    # 2. Cálculos de Nivel
-    total_cafes = len(todos_los_nombres)
-    visitados_count = len(seleccionados_vis)
-    
-    if visitados_count == 0:
-        nivel = "Recién Iniciado 🌱"
-        color = "#85746D"
-    elif visitados_count <= 5:
-        nivel = "Turista del Café 🚶"
-        color = "#BE8C63"
-    elif visitados_count <= 15:
-        nivel = "Catador en Ascenso ☕"
-        color = "#D97736"
-    elif visitados_count <= 30:
-        nivel = "Parroquiano Fiel 🏠"
-        color = "#A65A2E"
-    elif visitados_count <= 50:
-        nivel = "Barista Honorario 🏆"
-        color = "#4B3832"
-    else:
-        nivel = "Leyenda del Café 👑"
-        color = "#FFD700"
-        
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # 3. Tarjeta de Rango
-    html_pasaporte = (
-        f"<div style='background-color: #FFFFFF; padding: 20px; border-radius: 12px; border: 2px solid {color}; text-align: center; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);'>"
-        f"<h3 style='color: #4B3832; margin-bottom: 5px;'>Rango Actual: <span style='color: {color};'>{nivel}</span></h3>"
-        f"<p style='font-size: 1.1rem; color: #85746D; margin-top: 5px;'>Coleccionaste <strong>{visitados_count}</strong> sellos de <strong>{total_cafes}</strong> cafeterías disponibles.</p>"
+    # --- RANGO NACIONAL ---
+    total_cafes = len(todos_los_nombres)
+    visitados_count = len(seleccionados_vis)
+    nivel_global, color_global = calcular_rango_pasaporte(visitados_count)
+    
+    st.markdown("### 🇦🇷 Progreso Nacional")
+    html_nacional = (
+        f"<div style='background-color: #FFFFFF; padding: 20px; border-radius: 12px; border: 2px solid {color_global}; text-align: center; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);'>"
+        f"<h3 style='color: #4B3832; margin-bottom: 5px;'>Rango Global: <span style='color: {color_global};'>{nivel_global}</span></h3>"
+        f"<p style='font-size: 1.1rem; color: #85746D; margin-top: 5px;'>Coleccionaste <strong>{visitados_count}</strong> sellos de <strong>{total_cafes}</strong> cafeterías en toda Argentina.</p>"
         f"</div>"
     )
-    st.markdown(html_pasaporte, unsafe_allow_html=True)
-    
-    # 4. Barra de Progreso Visual
+    st.markdown(html_nacional, unsafe_allow_html=True)
     if total_cafes > 0:
-        progreso = min(visitados_count / total_cafes, 1.0)
-        st.progress(progreso)
+        st.progress(min(visitados_count / total_cafes, 1.0))
+
+    st.markdown("<br><hr><br>", unsafe_allow_html=True)
+    
+    # --- RANGOS POR CIUDAD ---
+    st.markdown("### 📍 Logros por Ciudad")
+    
+    df_visitados = df_total[df_total["CAFE"].isin(seleccionados_vis)]
+    ciudades = sorted(df_total["CIUDAD"].dropna().unique())
+    
+    # Organizamos en 3 columnas para que parezcan sellos de pasaporte
+    cols = st.columns(3)
+    
+    for idx, ciudad in enumerate(ciudades):
+        total_ciudad = len(df_total[df_total["CIUDAD"] == ciudad])
+        visitados_ciudad = len(df_visitados[df_visitados["CIUDAD"] == ciudad])
+        nivel_ciudad, color_ciudad = calcular_rango_pasaporte(visitados_ciudad)
+        
+        with cols[idx % 3]:
+            html_ciudad = (
+                f"<div style='background: #FFFFFF; border: 1px solid #EADBC8; border-top: 4px solid {color_ciudad}; border-radius: 8px; padding: 15px; margin-bottom: 10px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.02);'>"
+                f"<h4 style='color: #4B3832; margin: 0 0 10px 0;'>{ciudad}</h4>"
+                f"<p style='margin: 0; font-size: 0.9rem; color: #85746D;'>Sellos: <strong>{visitados_ciudad}</strong> / {total_ciudad}</p>"
+                f"<p style='margin: 5px 0 0 0; font-weight: 600; color: {color_ciudad}; font-size: 0.95rem;'>{nivel_ciudad}</p>"
+                f"</div>"
+            )
+            st.markdown(html_ciudad, unsafe_allow_html=True)
+            if total_ciudad > 0:
+                st.progress(min(visitados_ciudad / total_ciudad, 1.0))
+            st.markdown("<br>", unsafe_allow_html=True)
