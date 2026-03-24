@@ -429,24 +429,46 @@ with tabs[0]:
 
 # --- TAB 2: TOSTADORES ---
 with tabs[1]:
+    st.subheader("🔥 Tostadores de Especialidad")
+    
     ciudad_tost = st.selectbox("🏙️ Filtrar tostadores por ciudad", ["Todas"] + list(GID_CAFES.keys()))
     tostadores = cargar_tostadores()
     
+    # Escudo protector por si falta alguna columna en el Excel
+    if "CIUDAD" not in tostadores.columns:
+        tostadores["CIUDAD"] = "-"
+    if "TIENDA ONLINE" not in tostadores.columns:
+        tostadores["TIENDA ONLINE"] = "-"
+    if "INSTAGRAM" not in tostadores.columns:
+        tostadores["INSTAGRAM"] = "#"
+        
     if ciudad_tost != "Todas":
-        tostadores = tostadores[tostadores["CIUDAD"].str.contains(ciudad_tost, case=False)]
+        # Filtramos por ciudad ignorando mayúsculas y minúsculas
+        tostadores = tostadores[tostadores["CIUDAD"].str.contains(ciudad_tost, case=False, na=False)]
     
     for i in range(0, len(tostadores), 3):
         cols = st.columns(3)
         for j, (_, t) in enumerate(tostadores.iloc[i:i+3].iterrows()):
             with cols[j]:
+                # Lógica para mostrar o no el botón de la tienda online
+                link_tienda = str(t.get('TIENDA ONLINE', '-')).strip()
+                if link_tienda != "-" and link_tienda.lower() != "nan" and link_tienda != "":
+                    # Botón secundario con un color más llamativo para comprar
+                    html_btn_tienda = f"<a class='ig-btn' href='{link_tienda}' target='_blank' style='margin-top: 10px; background-color: #BE8C63;'>🛒 Tienda Online</a>"
+                else:
+                    html_btn_tienda = ""
+                
+                # Tarjeta limpia con Tostador, Ciudad y los botones
                 html_tostador = (
-                    f"<div class='tostador-card'>"
+                    f"<div class='tostador-card' style='text-align: center; padding: 25px 15px;'>"
                     f"<div>"
-                    f"<div class='tostador-title'>☕ {t['TOSTADOR']}</div>"
-                    f"<p style='font-size: 0.8rem; color: #BE8C63; font-weight: 600;'>🌱 {t['VARIEDADES']}</p>"
-                    f"<p class='tostador-desc'>{t['DESCRIPCION']}</p>"
+                    f"<h3 style='color: #4B3832; margin-bottom: 5px; font-size: 1.3rem;'>☕ {t.get('TOSTADOR', 'Desconocido')}</h3>"
+                    f"<p style='font-size: 1rem; color: #85746D; margin-top: 5px; font-weight: 600;'>📍 {t['CIUDAD']}</p>"
                     f"</div>"
-                    f"<a class='ig-btn' href='{t['INSTAGRAM']}' target='_blank'>VER INSTAGRAM</a>"
+                    f"<div style='margin-top: 20px;'>"
+                    f"<a class='ig-btn' href='{t['INSTAGRAM']}' target='_blank' style='margin-top: 0;'>📱 Ver Instagram</a>"
+                    f"{html_btn_tienda}"
+                    f"</div>"
                     f"</div>"
                 )
                 st.markdown(html_tostador, unsafe_allow_html=True)
@@ -515,7 +537,7 @@ with tabs[3]:
     )
     st.pydeck_chart(pdk.Deck(layers=[layer_fed], initial_view_state=view_arg, tooltip={"text": "{CAFE}"}))
 
-# --- TAB 5: FAVORITOS (NUEVO DISEÑO CON TABLA INTERACTIVA) ---
+# --- TAB 5: FAVORITOS ---
 with tabs[4]:
     st.subheader("⭐ Mis Cafés Favoritos")
     
@@ -579,7 +601,7 @@ with tabs[4]:
     else:
         st.info("💡 Todavía no agregaste ningún favorito. Tildá alguno en la tabla de arriba.")
 
-# --- TAB 6: PASAPORTE CAFETERO (NUEVO DISEÑO CON TABLA INTERACTIVA) ---
+# --- TAB 6: PASAPORTE CAFETERO ---
 with tabs[5]:
     st.subheader("🛂 Tu Pasaporte Cafetero")
     
