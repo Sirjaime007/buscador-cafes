@@ -156,7 +156,7 @@ def sheet_url(gid: str) -> str:
 def cargar_cafes(gid):
     try:
         df = pd.read_csv(sheet_url(gid), dtype=str)
-        df.columns = df.columns.str.upper()
+        df.columns = df.columns.str.upper().str.strip()
         df["LAT"] = pd.to_numeric(df["LAT"].str.replace(",", "."), errors="coerce")
         df["LONG"] = pd.to_numeric(df["LONG"].str.replace(",", "."), errors="coerce")
         
@@ -170,25 +170,39 @@ def cargar_cafes(gid):
 
 @st.cache_data(ttl=300)
 def cargar_top_sudamerica():
-    try:
-        df = pd.read_csv(sheet_url(GID_TOP_SUDAMERICA), dtype=str)
-        df.columns = df.columns.str.upper()
+    # Eliminamos el try-except general para ver los errores de lectura de la tabla
+    df = pd.read_csv(sheet_url(GID_TOP_SUDAMERICA), dtype=str)
+    
+    # 1. Limpiamos espacios invisibles en los títulos de las columnas
+    df.columns = df.columns.str.upper().str.strip()
+    
+    # 2. Verificación y conversión de coordenadas
+    if "LAT" in df.columns and "LONG" in df.columns:
         df["LAT"] = pd.to_numeric(df["LAT"].str.replace(",", "."), errors="coerce")
         df["LONG"] = pd.to_numeric(df["LONG"].str.replace(",", "."), errors="coerce")
-        
-        if "INSTAGRAM" not in df.columns:
-            df["INSTAGRAM"] = ""
-            
-        # Si la hoja no tiene columna ciudad, la creamos genérica para no romper lógicas
-        if "CIUDAD" not in df.columns:
-            df["CIUDAD"] = "Top Sudamérica"
-            
-        # Flag para identificar que son del ranking
-        df["ES_TOP"] = True 
-        
-        return df.dropna(subset=["LAT", "LONG"])
-    except: 
+    else:
+        st.error("⚠️ Faltan las columnas 'LAT' o 'LONG' en la hoja Top.")
         return pd.DataFrame()
+        
+    if "CAFE" not in df.columns:
+        st.error("⚠️ Falta la columna 'CAFE' en la hoja Top.")
+        return pd.DataFrame()
+        
+    if "INSTAGRAM" not in df.columns:
+        df["INSTAGRAM"] = ""
+        
+    if "UBICACION" not in df.columns:
+        df["UBICACION"] = ""
+        
+    # 3. Si la hoja no tiene ciudad, le asignamos una genérica
+    if "CIUDAD" not in df.columns:
+        df["CIUDAD"] = "Top Argentina"
+        
+    # Flag para identificar que son del ranking dorado
+    df["ES_TOP"] = True 
+    
+    # 4. Filtramos los que NO tienen coordenadas para que no rompan el mapa
+    return df.dropna(subset=["LAT", "LONG"])
 
 
 @st.cache_data(ttl=300)
@@ -213,7 +227,7 @@ def cargar_todos_los_cafes():
             df["ES_TOP"] = False
             dfs.append(df)
             
-    # 2. Cargamos el top de Sudamérica
+    # 2. Cargamos el top
     df_top = cargar_top_sudamerica()
     if not df_top.empty:
         dfs.append(df_top)
@@ -336,7 +350,6 @@ st.markdown(html_contador, unsafe_allow_html=True)
 # ==========================================
 # 9. DEFINICIÓN DE PESTAÑAS (TABS)
 # ==========================================
-# NOTA: Pestaña "Pasaporte" eliminada temporalmente.
 tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar", "🇦🇷 Mapa Federal", "⭐ Favoritos"])
 
 
@@ -346,8 +359,7 @@ tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar", "🇦🇷 Mapa F
 with tabs[0]:
     ciudad_sel = st.selectbox("🏙️ Ciudad de búsqueda", list(GID_CAFES.keys()))
     
-    # Filtramos la ciudad seleccionada PERO agregamos también los TOP de Sudamérica
-    # para que si un usuario está cerca de uno, le aparezca independientemente de la ciudad base.
+    # Filtramos la ciudad seleccionada PERO agregamos también los TOP de Sudamérica/Argentina
     df_ciudad = df_total[(df_total["CIUDAD"] == ciudad_sel) | (df_total["ES_TOP"] == True)].copy()
     
     placeholders = {
@@ -602,7 +614,7 @@ with tabs[2]:
 # TAB 4: MAPA FEDERAL CON TOPS
 # ------------------------------------------
 with tabs[3]:
-    st.subheader("🇦🇷 Mapa Federal y Sudamérica")
+    st.subheader("🇦🇷 Mapa Federal")
     view_arg = pdk.ViewState(latitude=-38.41, longitude=-63.61, zoom=4)
     
     # Separamos en dos DataFrames para aplicar estilos distintos en el mapa general
@@ -627,7 +639,7 @@ with tabs[3]:
             "ScatterplotLayer", 
             df_tops_fed, 
             get_position=["LONG", "LAT"],
-            get_color=[218, 165, 32, 255], # Dorado para destacar el Top Sudamérica
+            get_color=[218, 165, 32, 255], # Dorado para destacar el Top
             get_radius=80,                 # Más grandes a nivel nacional
             radius_min_pixels=6, 
             pickable=True
