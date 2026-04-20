@@ -9,29 +9,29 @@ import random
 import urllib.parse
 import extra_streamlit_components as stx
 
-# =========================
-# CONFIG APP Y ESTILOS
-# =========================
+
+# ==========================================
+# 1. CONFIGURACIÓN DE LA APP Y ESTILOS
+# ==========================================
 st.set_page_config(page_title="Buscador de Cafés", page_icon="☕", layout="wide")
 
-# =========================
-# INICIALIZAR GESTOR DE COOKIES
-# =========================
+
+# ==========================================
+# 2. INICIALIZAR GESTOR DE COOKIES
+# ==========================================
 cookie_manager = stx.CookieManager()
 
 favs_guardados = cookie_manager.get(cookie="cafes_favoritos")
-visitados_guardados = cookie_manager.get(cookie="cafes_visitados")
 
 if favs_guardados is None:
     favs_iniciales = []
 else:
     favs_iniciales = favs_guardados.split("||") if favs_guardados else []
 
-if visitados_guardados is None:
-    visitados_iniciales = []
-else:
-    visitados_iniciales = visitados_guardados.split("||") if visitados_guardados else []
 
+# ==========================================
+# 3. CSS Y ESTILOS VISUALES
+# ==========================================
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
@@ -123,10 +123,12 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# CARGA DE DATOS 
-# =========================
+
+# ==========================================
+# 4. CONSTANTES Y VARIABLES DE ENTORNO
+# ==========================================
 SPREADSHEET_ID = "10vUOhRr7IAXlRrkBphxEP4ApXYBgrnuxJq6G83GnfHI"
+
 GID_CAFES = {
     "Mar del Plata": "0", 
     "Buenos Aires": "1296176686", 
@@ -136,10 +138,19 @@ GID_CAFES = {
     "Mendoza": "2031963266",
     "Bahía Blanca": "1634818534"
 }
+
 GID_TOSTADORES = "1590442133"
 
+# Identificador de la nueva hoja: Top 100 Sudamérica
+GID_TOP_SUDAMERICA = "35250567" 
+
+
+# ==========================================
+# 5. CARGA DE DATOS (CACHÉ)
+# ==========================================
 def sheet_url(gid: str) -> str:
     return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid={gid}"
+
 
 @st.cache_data(ttl=300)
 def cargar_cafes(gid):
@@ -156,6 +167,30 @@ def cargar_cafes(gid):
     except: 
         return pd.DataFrame()
 
+
+@st.cache_data(ttl=300)
+def cargar_top_sudamerica():
+    try:
+        df = pd.read_csv(sheet_url(GID_TOP_SUDAMERICA), dtype=str)
+        df.columns = df.columns.str.upper()
+        df["LAT"] = pd.to_numeric(df["LAT"].str.replace(",", "."), errors="coerce")
+        df["LONG"] = pd.to_numeric(df["LONG"].str.replace(",", "."), errors="coerce")
+        
+        if "INSTAGRAM" not in df.columns:
+            df["INSTAGRAM"] = ""
+            
+        # Si la hoja no tiene columna ciudad, la creamos genérica para no romper lógicas
+        if "CIUDAD" not in df.columns:
+            df["CIUDAD"] = "Top Sudamérica"
+            
+        # Flag para identificar que son del ranking
+        df["ES_TOP"] = True 
+        
+        return df.dropna(subset=["LAT", "LONG"])
+    except: 
+        return pd.DataFrame()
+
+
 @st.cache_data(ttl=300)
 def cargar_tostadores():
     try: 
@@ -165,20 +200,33 @@ def cargar_tostadores():
     except: 
         return pd.DataFrame()
 
+
 @st.cache_data(ttl=300)
 def cargar_todos_los_cafes():
     dfs = []
+    
+    # 1. Cargamos las ciudades regulares
     for ciudad, gid in GID_CAFES.items():
         df = cargar_cafes(gid).copy()
-        df["CIUDAD"] = ciudad
-        dfs.append(df)
+        if not df.empty:
+            df["CIUDAD"] = ciudad
+            df["ES_TOP"] = False
+            dfs.append(df)
+            
+    # 2. Cargamos el top de Sudamérica
+    df_top = cargar_top_sudamerica()
+    if not df_top.empty:
+        dfs.append(df_top)
+        
     if dfs:
         return pd.concat(dfs, ignore_index=True)
+        
     return pd.DataFrame()
 
-# =========================
-# FUNCIONES SATELITALES Y MATEMÁTICAS
-# =========================
+
+# ==========================================
+# 6. FUNCIONES SATELITALES Y MATEMÁTICAS
+# ==========================================
 @st.cache_resource
 def get_geocoder(): 
     return ArcGIS(timeout=10)
@@ -246,23 +294,10 @@ def generar_link_whatsapp(nombre, ubicacion, lat, lon):
     texto_codificado = urllib.parse.quote(texto)
     return f"https://api.whatsapp.com/send?text={texto_codificado}"
 
-def calcular_rango_pasaporte(cantidad):
-    if cantidad == 0:
-        return "Recién Iniciado 🌱", "#85746D"
-    elif cantidad <= 5:
-        return "Turista del Café 🚶", "#BE8C63"
-    elif cantidad <= 15:
-        return "Catador en Ascenso ☕", "#D97736"
-    elif cantidad <= 30:
-        return "Parroquiano Fiel 🏠", "#A65A2E"
-    elif cantidad <= 50:
-        return "Barista Honorario 🏆", "#4B3832"
-    else:
-        return "Leyenda del Café 👑", "#FFD700"
 
-# =========================
-# SIDEBAR - TELEGRAM
-# =========================
+# ==========================================
+# 7. SIDEBAR - TELEGRAM
+# ==========================================
 with st.sidebar:
     st.header("💡 Ayudanos a mejorar")
     with st.form("form_sugerencia", clear_on_submit=True):
@@ -283,25 +318,37 @@ with st.sidebar:
             except: 
                 st.error("Error al enviar")
 
-# =========================
-# UI PRINCIPAL - CONTADOR
-# =========================
+
+# ==========================================
+# 8. UI PRINCIPAL Y CONTADOR
+# ==========================================
 df_total = cargar_todos_los_cafes()
 
 html_contador = (
     f"<div class='main-counter'>"
-    f"<p>EXPLORANDO EL CAFÉ DE ESPECIALIDAD<br>EN ARGENTINA</p>"
+    f"<p>EXPLORANDO EL CAFÉ DE ESPECIALIDAD<br>EN ARGENTINA Y SUDAMÉRICA</p>"
     f"<h1>{len(df_total)} Cafeterías</h1>"
     f"</div>"
 )
 st.markdown(html_contador, unsafe_allow_html=True)
 
-tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar", "🇦🇷 Mapa Federal", "⭐ Favoritos", "🛂 Pasaporte"])
 
-# --- TAB 1: CAFÉS ---
+# ==========================================
+# 9. DEFINICIÓN DE PESTAÑAS (TABS)
+# ==========================================
+# NOTA: Pestaña "Pasaporte" eliminada temporalmente.
+tabs = st.tabs(["☕ Cafés", "🔥 Tostadores", "🔍 Buscar", "🇦🇷 Mapa Federal", "⭐ Favoritos"])
+
+
+# ------------------------------------------
+# TAB 1: CAFÉS Y BÚSQUEDA POR RADIO
+# ------------------------------------------
 with tabs[0]:
     ciudad_sel = st.selectbox("🏙️ Ciudad de búsqueda", list(GID_CAFES.keys()))
-    df_ciudad = cargar_cafes(GID_CAFES[ciudad_sel])
+    
+    # Filtramos la ciudad seleccionada PERO agregamos también los TOP de Sudamérica
+    # para que si un usuario está cerca de uno, le aparezca independientemente de la ciudad base.
+    df_ciudad = df_total[(df_total["CIUDAD"] == ciudad_sel) | (df_total["ES_TOP"] == True)].copy()
     
     placeholders = {
         "Mar del Plata": "Ej: Av. Colón 1500",
@@ -360,6 +407,7 @@ with tabs[0]:
             
             if btn_buscar:
                 res_busqueda = df_ciudad[df_ciudad["DIST_KM"] <= radio_km].sort_values("DIST_KM")
+                
                 if not res_busqueda.empty:
                     res_busqueda["CUADRAS"] = res_busqueda["DIST_KM"].apply(lambda km: calcular_cuadras(km, ciudad_sel))
                     res_busqueda["MAPS"] = res_busqueda.apply(lambda r: f"https://www.google.com/maps/search/?api=1&query={r['LAT']},{r['LONG']}", axis=1)
@@ -377,17 +425,41 @@ with tabs[0]:
                         }
                     )
                     
+                    # --- RENDERIZADO DEL MAPA MULTI-CAPA ---
                     view = pdk.ViewState(latitude=lat_f, longitude=lon_f, zoom=14)
-                    layer_cafes = pdk.Layer(
-                        "ScatterplotLayer", 
-                        res_busqueda, 
-                        get_position=["LONG", "LAT"],
-                        get_color=[190, 130, 90, 220], 
-                        get_radius=25, 
-                        radius_min_pixels=3, 
-                        pickable=True
-                    )
-                    layer_usuario = pdk.Layer(
+                    
+                    # Separamos las cafeterías en normales y tops para asignarles diseño diferente
+                    res_normales = res_busqueda[res_busqueda["ES_TOP"] == False]
+                    res_tops = res_busqueda[res_busqueda["ES_TOP"] == True]
+                    
+                    capas_mapa = []
+                    
+                    # Capa 1: Cafeterías regulares
+                    if not res_normales.empty:
+                        capas_mapa.append(pdk.Layer(
+                            "ScatterplotLayer", 
+                            res_normales, 
+                            get_position=["LONG", "LAT"],
+                            get_color=[190, 130, 90, 220], 
+                            get_radius=25, 
+                            radius_min_pixels=3, 
+                            pickable=True
+                        ))
+                    
+                    # Capa 2: Cafeterías Top Sudamérica (Diferente color y tamaño)
+                    if not res_tops.empty:
+                        capas_mapa.append(pdk.Layer(
+                            "ScatterplotLayer", 
+                            res_tops, 
+                            get_position=["LONG", "LAT"],
+                            get_color=[218, 165, 32, 255], # Color Dorado
+                            get_radius=60,                 # Más grandes
+                            radius_min_pixels=5, 
+                            pickable=True
+                        ))
+                        
+                    # Capa 3: Ubicación del usuario
+                    capas_mapa.append(pdk.Layer(
                         "ScatterplotLayer",
                         pd.DataFrame([{"LAT": lat_f, "LONG": lon_f}]),
                         get_position=["LONG", "LAT"],
@@ -395,8 +467,10 @@ with tabs[0]:
                         get_radius=40,
                         radius_min_pixels=6,
                         pickable=False
-                    )
-                    st.pydeck_chart(pdk.Deck(layers=[layer_cafes, layer_usuario], initial_view_state=view, tooltip={"text": "{CAFE}"}))
+                    ))
+                    
+                    st.pydeck_chart(pdk.Deck(layers=capas_mapa, initial_view_state=view, tooltip={"text": "{CAFE}"}))
+                
                 else: 
                     st.warning("No encontramos locales en este radio. ¡Probá ampliando el rango o verificá el punto detectado!")
             
@@ -427,14 +501,16 @@ with tabs[0]:
         else: 
             st.error("❌ El satélite no pudo encontrar esa dirección. Asegurate de incluir el barrio o usar una calle principal.")
 
-# --- TAB 2: TOSTADORES ---
+
+# ------------------------------------------
+# TAB 2: TOSTADORES
+# ------------------------------------------
 with tabs[1]:
     st.subheader("🔥 Tostadores de Especialidad")
     
     ciudad_tost = st.selectbox("🏙️ Filtrar tostadores por ciudad", ["Todas"] + list(GID_CAFES.keys()))
     tostadores = cargar_tostadores()
     
-    # Escudo protector por si falta alguna columna en el Excel
     if "CIUDAD" not in tostadores.columns:
         tostadores["CIUDAD"] = "-"
     if "TIENDA ONLINE" not in tostadores.columns:
@@ -443,22 +519,18 @@ with tabs[1]:
         tostadores["INSTAGRAM"] = "#"
         
     if ciudad_tost != "Todas":
-        # Filtramos por ciudad ignorando mayúsculas y minúsculas
         tostadores = tostadores[tostadores["CIUDAD"].str.contains(ciudad_tost, case=False, na=False)]
     
     for i in range(0, len(tostadores), 3):
         cols = st.columns(3)
         for j, (_, t) in enumerate(tostadores.iloc[i:i+3].iterrows()):
             with cols[j]:
-                # Lógica para mostrar o no el botón de la tienda online
                 link_tienda = str(t.get('TIENDA ONLINE', '-')).strip()
                 if link_tienda != "-" and link_tienda.lower() != "nan" and link_tienda != "":
-                    # Botón secundario con un color más llamativo para comprar
                     html_btn_tienda = f"<a class='ig-btn' href='{link_tienda}' target='_blank' style='margin-top: 10px; background-color: #BE8C63;'>🛒 Tienda Online</a>"
                 else:
                     html_btn_tienda = ""
                 
-                # Tarjeta limpia con Tostador, Ciudad y los botones
                 html_tostador = (
                     f"<div class='tostador-card' style='text-align: center; padding: 25px 15px;'>"
                     f"<div>"
@@ -473,7 +545,10 @@ with tabs[1]:
                 )
                 st.markdown(html_tostador, unsafe_allow_html=True)
 
-# --- TAB 3: BUSCAR POR NOMBRE ---
+
+# ------------------------------------------
+# TAB 3: BUSCAR POR NOMBRE
+# ------------------------------------------
 with tabs[2]:
     st.subheader("🔍 Buscador inteligente")
     
@@ -522,22 +597,48 @@ with tabs[2]:
             }
         )
 
-# --- TAB 4: MAPA FEDERAL ---
-with tabs[3]:
-    st.subheader("🇦🇷 Mapa Federal")
-    view_arg = pdk.ViewState(latitude=-38.41, longitude=-63.61, zoom=4)
-    layer_fed = pdk.Layer(
-        "ScatterplotLayer", 
-        df_total, 
-        get_position=["LONG", "LAT"],
-        get_color=[190, 140, 99, 180], 
-        get_radius=30, 
-        radius_min_pixels=3, 
-        pickable=True
-    )
-    st.pydeck_chart(pdk.Deck(layers=[layer_fed], initial_view_state=view_arg, tooltip={"text": "{CAFE}"}))
 
-# --- TAB 5: FAVORITOS ---
+# ------------------------------------------
+# TAB 4: MAPA FEDERAL CON TOPS
+# ------------------------------------------
+with tabs[3]:
+    st.subheader("🇦🇷 Mapa Federal y Sudamérica")
+    view_arg = pdk.ViewState(latitude=-38.41, longitude=-63.61, zoom=4)
+    
+    # Separamos en dos DataFrames para aplicar estilos distintos en el mapa general
+    df_normales_fed = df_total[df_total["ES_TOP"] == False]
+    df_tops_fed = df_total[df_total["ES_TOP"] == True]
+    
+    capas_federales = []
+    
+    if not df_normales_fed.empty:
+        capas_federales.append(pdk.Layer(
+            "ScatterplotLayer", 
+            df_normales_fed, 
+            get_position=["LONG", "LAT"],
+            get_color=[190, 140, 99, 180], 
+            get_radius=30, 
+            radius_min_pixels=3, 
+            pickable=True
+        ))
+        
+    if not df_tops_fed.empty:
+        capas_federales.append(pdk.Layer(
+            "ScatterplotLayer", 
+            df_tops_fed, 
+            get_position=["LONG", "LAT"],
+            get_color=[218, 165, 32, 255], # Dorado para destacar el Top Sudamérica
+            get_radius=80,                 # Más grandes a nivel nacional
+            radius_min_pixels=6, 
+            pickable=True
+        ))
+        
+    st.pydeck_chart(pdk.Deck(layers=capas_federales, initial_view_state=view_arg, tooltip={"text": "{CAFE} - {CIUDAD}"}))
+
+
+# ------------------------------------------
+# TAB 5: FAVORITOS
+# ------------------------------------------
 with tabs[4]:
     st.subheader("⭐ Mis Cafés Favoritos")
     
@@ -600,93 +701,3 @@ with tabs[4]:
         )
     else:
         st.info("💡 Todavía no agregaste ningún favorito. Tildá alguno en la tabla de arriba.")
-
-# --- TAB 6: PASAPORTE CAFETERO ---
-with tabs[5]:
-    st.subheader("🛂 Tu Pasaporte Cafetero")
-    
-    col_p1, col_p2 = st.columns(2)
-    ciudades_pas = ["Todas"] + sorted(df_total["CIUDAD"].dropna().unique())
-    ciudad_filtro_pas = col_p1.selectbox("🏙️ Filtrar por ciudad:", ciudades_pas, key="sel_pas_ciudad")
-    busqueda_pas = col_p2.text_input("🔍 Buscar local específico:", key="txt_pas_busqueda")
-    
-    df_pas_view = df_total.copy()
-    if ciudad_filtro_pas != "Todas":
-        df_pas_view = df_pas_view[df_pas_view["CIUDAD"] == ciudad_filtro_pas]
-    if busqueda_pas:
-        df_pas_view = df_pas_view[df_pas_view["CAFE"].str.contains(busqueda_pas, case=False, na=False)]
-        
-    df_pas_view["VISITADO"] = df_pas_view["CAFE"].isin(visitados_iniciales)
-    
-    st.write("Tildá la casilla 🛂 en la tabla para sellar tu pasaporte:")
-    
-    edited_pas = st.data_editor(
-        df_pas_view[["VISITADO", "CAFE", "UBICACION", "CIUDAD"]],
-        column_config={
-            "VISITADO": st.column_config.CheckboxColumn("🛂", default=False),
-            "CAFE": "Cafetería",
-            "UBICACION": "Dirección",
-            "CIUDAD": "Ciudad"
-        },
-        disabled=["CAFE", "UBICACION", "CIUDAD"],
-        hide_index=True,
-        use_container_width=True,
-        key="editor_pas"
-    )
-    
-    cafes_visibles_pas = df_pas_view["CAFE"].tolist()
-    seleccionados_ahora_pas = edited_pas[edited_pas["VISITADO"]]["CAFE"].tolist()
-    
-    visitados_no_visibles = [c for c in visitados_iniciales if c not in cafes_visibles_pas]
-    lista_visitados_final = visitados_no_visibles + seleccionados_ahora_pas
-    
-    if set(lista_visitados_final) != set(visitados_iniciales):
-        cookie_manager.set("cafes_visitados", "||".join(lista_visitados_final))
-        visitados_iniciales = lista_visitados_final
-        
-    st.markdown("<br><hr>", unsafe_allow_html=True)
-    
-    # --- RANGO NACIONAL ---
-    todos_los_nombres = sorted(df_total["CAFE"].dropna().unique())
-    total_cafes = len(todos_los_nombres)
-    visitados_count = len(lista_visitados_final)
-    nivel_global, color_global = calcular_rango_pasaporte(visitados_count)
-    
-    st.markdown("### 🇦🇷 Progreso Nacional")
-    html_nacional = (
-        f"<div style='background-color: #FFFFFF; padding: 20px; border-radius: 12px; border: 2px solid {color_global}; text-align: center; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);'>"
-        f"<h3 style='color: #4B3832; margin-bottom: 5px;'>Rango Global: <span style='color: {color_global};'>{nivel_global}</span></h3>"
-        f"<p style='font-size: 1.1rem; color: #85746D; margin-top: 5px;'>Coleccionaste <strong>{visitados_count}</strong> sellos de <strong>{total_cafes}</strong> cafeterías en toda Argentina.</p>"
-        f"</div>"
-    )
-    st.markdown(html_nacional, unsafe_allow_html=True)
-    if total_cafes > 0:
-        st.progress(min(visitados_count / total_cafes, 1.0))
-
-    st.markdown("<br><hr><br>", unsafe_allow_html=True)
-    
-    # --- RANGOS POR CIUDAD ---
-    st.markdown("### 📍 Logros por Ciudad")
-    
-    df_visitados = df_total[df_total["CAFE"].isin(lista_visitados_final)]
-    ciudades = sorted(df_total["CIUDAD"].dropna().unique())
-    
-    cols = st.columns(3)
-    
-    for idx, ciudad in enumerate(ciudades):
-        total_ciudad = len(df_total[df_total["CIUDAD"] == ciudad])
-        visitados_ciudad = len(df_visitados[df_visitados["CIUDAD"] == ciudad])
-        nivel_ciudad, color_ciudad = calcular_rango_pasaporte(visitados_ciudad)
-        
-        with cols[idx % 3]:
-            html_ciudad = (
-                f"<div style='background: #FFFFFF; border: 1px solid #EADBC8; border-top: 4px solid {color_ciudad}; border-radius: 8px; padding: 15px; margin-bottom: 10px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.02);'>"
-                f"<h4 style='color: #4B3832; margin: 0 0 10px 0;'>{ciudad}</h4>"
-                f"<p style='margin: 0; font-size: 0.9rem; color: #85746D;'>Sellos: <strong>{visitados_ciudad}</strong> / {total_ciudad}</p>"
-                f"<p style='margin: 5px 0 0 0; font-weight: 600; color: {color_ciudad}; font-size: 0.95rem;'>{nivel_ciudad}</p>"
-                f"</div>"
-            )
-            st.markdown(html_ciudad, unsafe_allow_html=True)
-            if total_ciudad > 0:
-                st.progress(min(visitados_ciudad / total_ciudad, 1.0))
-            st.markdown("<br>", unsafe_allow_html=True)
